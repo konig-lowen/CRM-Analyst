@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Usuários — CRM Analyst</title>
+<style>
+  :root {
+    --bg: #F8F9FA;
+    --surface: #FFFFFF;
+    --border: #E5E7EB;
+    --text: #111827;
+    --muted: #6B7280;
+    --accent: #4F46E5;
+    --accent-hover: #4338CA;
+    --accent-light: #EEF2FF;
+    --success: #059669;
+    --success-light: #ECFDF5;
+    --warning: #D97706;
+    --warning-light: #FFFBEB;
+    --danger: #DC2626;
+    --danger-light: #FEF2F2;
+    --sidebar-w: 220px;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.04);
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    min-height:100vh;
+    font-size:14px;
+    line-height:1.5;
+  }
+
+  .sidebar {
+    width: var(--sidebar-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    box-shadow: 2px 0 8px rgba(0,0,0,0.04);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    position: fixed;
+    left: 0; top: 0;
+    z-index: 10;
+    padding: 0;
+  }
+  .brand { display:flex; align-items:center; gap:10px; padding: 18px 16px; border-bottom: 1px solid var(--border); }
+  .brand-icon { font-size: 22px; }
+  .brand-name { font-weight: 700; font-size: 15px; color: var(--text); }
+  .brand-sub { font-size: 11px; color: var(--muted); }
+  .nav { flex:1; padding: 12px 8px; display:flex; flex-direction:column; gap: 2px; }
+  .nav-link { display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius: 8px; color: var(--muted); text-decoration:none; font-size:14px; font-weight:500; transition: all .15s; }
+  .nav-link:hover { background: var(--accent-light); color: var(--accent); }
+  .nav-link.active { background: var(--accent-light); color: var(--accent); font-weight: 600; }
+  .nav-icon { font-size: 16px; width: 20px; text-align:center; }
+  .sidebar-footer { padding: 12px 16px; border-top: 1px solid var(--border); display:flex; flex-direction:column; gap:8px; }
+  #user-name { font-size: 13px; font-weight: 600; color: var(--text); }
+  #user-role { font-size: 11px; color: var(--muted); }
+
+  .btn{
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{background:var(--accent-hover)}
+  .btn-outline{background:var(--surface);border-color:#D1D5DB;color:#374151}
+  .btn-outline:hover{background:#F9FAFB}
+  .btn-sm{padding:7px 10px;font-size:12px;border-radius:8px}
+
+  .main{margin-left:var(--sidebar-w);min-height:100vh;display:flex;flex-direction:column}
+
+  header{
+    background:var(--surface);
+    border-bottom:1px solid var(--border);
+    padding:12px 20px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+  }
+  header h1{font-size:16px;font-weight:700}
+  .header-right{display:flex;gap:10px;align-items:center}
+
+  .container{max-width:1100px;margin:22px auto;padding:0 20px;width:100%}
+
+  .tabs{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .tab{
+    padding:10px 12px;
+    border-radius:12px;
+    border:1px solid var(--border);
+    background:var(--surface);
+    color:#374151;
+    cursor:pointer;
+    font-size:13px;
+    font-weight:600;
+  }
+  .tab.active{background:var(--accent-light);border-color:rgba(79,70,229,0.35);color:var(--accent)}
+
+  .panel{display:none}
+  .panel.active{display:block}
+
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:var(--shadow)}
+  .card h2{font-size:14px;margin-bottom:12px;font-weight:700}
+
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}
+  input, select{
+    background:var(--surface);
+    color:var(--text);
+    border:1px solid #D1D5DB;
+    border-radius:10px;
+    padding:10px;
+    outline:none;
+  }
+  input:focus, select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(79,70,229,0.1)}
+  input{min-width:200px}
+
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:10px 10px;border-bottom:1px solid var(--border);font-size:13px;text-align:left}
+  th{color:#374151;font-size:12px;text-transform:uppercase;letter-spacing:.06em;background:#F9FAFB}
+  tr:last-child td{border-bottom:none}
+
+  .badge{display:inline-block;padding:3px 10px;border-radius:999px;border:1px solid var(--border);font-size:12px;background:#F9FAFB;color:#374151}
+
+  .role-badge{border:none;font-weight:700}
+  .role-admin{background:var(--danger-light);color:var(--danger)}
+  .role-gestor{background:var(--warning-light);color:var(--warning)}
+  .role-supervisor{background:rgba(59,130,246,0.12);color:#2563EB}
+  .role-vendedor{background:#F3F4F6;color:#6B7280}
+
+  .msg{padding:10px 12px;border-radius:12px;border:1px solid var(--border);margin-bottom:12px;display:none}
+  .ok{border-color:#A7F3D0;background:var(--success-light);color:var(--success)}
+  .err{border-color:#FECACA;background:var(--danger-light);color:var(--danger)}
+  .muted{color:var(--muted);font-size:13px}
+
+  pre{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
+
+  @media (max-width: 920px){
+    input{min-width:unset;width:100%}
+    .row>div{width:100%}
+  }
+</style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">📊</div>
+      <div>
+        <div class="brand-name">CRM Analyst</div>
+        <div class="brand-sub">VetorV</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <a href="/" class="nav-link"><span class="nav-icon">💬</span> Chat</a>
+      <a href="/coach" class="nav-link"><span class="nav-icon">🎯</span> Coach AI</a>
+      <a href="/dashboard" class="nav-link"><span class="nav-icon">📈</span> Dashboard</a>
+      <a href="/ranking" class="nav-link"><span class="nav-icon">🏆</span> Ranking</a>
+      <a href="/reports" class="nav-link"><span class="nav-icon">📄</span> Relatórios</a>
+      <a id="adminLink" href="/admin" class="nav-link active"><span class="nav-icon">⚙️</span> Usuários</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div id="user-name">—</div>
+        <div id="user-role" class="muted">—</div>
+      </div>
+      <a href="/logout" class="btn btn-outline btn-sm" style="text-decoration:none; text-align:center;">Sair</a>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header>
+      <h1>Usuários</h1>
+      <div class="header-right">
+        <a class="btn btn-outline btn-sm" href="/">← Chat</a>
+      </div>
+    </header>
+
+    <div class="container">
+      <div id="msg" class="msg"></div>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="users">Usuários</button>
+        <button class="tab" data-tab="teams">Equipes</button>
+        <button class="tab" data-tab="goals">Metas</button>
+        <button class="tab" data-tab="history">Histórico</button>
+        <button class="tab" data-tab="reports">Relatórios</button>
+      </div>
+
+      <div class="panel active" id="panel-users">
+        <div class="card">
+          <h2>Criar usuário</h2>
+          <div class="row">
+            <div>
+              <label>E-mail (login)</label>
+              <input id="new-username" placeholder="ex: vendedor@vetorv.com.br" />
+            </div>
+            <div>
+              <label>Nome</label>
+              <input id="new-display" placeholder="Nome do usuário" />
+            </div>
+            <div>
+              <label>Role</label>
+              <select id="new-role">
+                <option value="vendedor">vendedor</option>
+                <option value="supervisor">supervisor</option>
+                <option value="gestor">gestor</option>
+                <option value="admin">admin</option>
+              </select>
+            </div>
+            <div>
+              <label>Ploomes (auto por e-mail; fallback opcional)</label>
+              <select id="new-ploomes-select">
+                <option value="">(auto / não preencher)</option>
+              </select>
+              <div class="muted" style="margin-top:6px">Se o e-mail não existir no Ploomes, escolha aqui (somente se necessário).</div>
+            </div>
+            <div>
+              <label>Senha</label>
+              <input id="new-password" type="password" placeholder="mínimo 4" />
+            </div>
+            <button class="btn btn-primary" onclick="createUser()">Criar</button>
+          </div>
+          <div class="muted" style="margin-top:10px">Dica: o sistema tenta vincular automaticamente pelo e-mail. O dropdown é apenas fallback (lista usuários Ploomes ativos).</div>
+        </div>
+
+        <div class="card">
+          <h2>Usuários cadastrados</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>E-mail</th>
+                <th>Nome</th>
+                <th>Role</th>
+                <th>Ploomes</th>
+                <th>Status</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="users-table">
+              <tr><td colspan="6">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-teams">
+        <div class="card">
+          <h2>Criar equipe</h2>
+          <div class="row">
+            <div>
+              <label>Nome da equipe</label>
+              <input id="team-name" placeholder="ex: Time Sul" />
+            </div>
+            <div>
+              <label>Supervisor (app_user_id)</label>
+              <input id="team-supervisor" placeholder="ex: 3" />
+            </div>
+            <button class="btn btn-primary" onclick="createTeam()">Criar</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Equipes e membros</h2>
+          <div class="muted" style="margin-bottom:10px">Vincule membros via: selecionar equipe e informar app_user_id.</div>
+          <div class="row">
+            <div>
+              <label>Equipe</label>
+              <select id="team-select"></select>
+            </div>
+            <div>
+              <label>Adicionar membro (app_user_id)</label>
+              <input id="team-member" placeholder="ex: 5" />
+            </div>
+            <button class="btn btn-outline" onclick="addMember()">Adicionar</button>
+          </div>
+
+          <div style="margin-top:12px" class="muted" id="teamsDump">Carregando...</div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-goals">
+        <div class="card">
+          <h2>Definir meta</h2>
+          <div class="row">
+            <div><label>Vendedor (app_user_id)</label><input id="g-user" placeholder="ex: 5" /></div>
+            <div><label>Ano</label><input id="g-year" placeholder="2026" /></div>
+            <div><label>Mês</label><input id="g-month" placeholder="5" /></div>
+            <div><label>Valor mensal (R$)</label><input id="g-valor" placeholder="100000" /></div>
+            <div><label>Interações semana</label><input id="g-inter" placeholder="50" /></div>
+            <button class="btn btn-primary" onclick="saveGoal()">Salvar</button>
+          </div>
+          <div class="muted" style="margin-top:10px">Metas completas (funil/semana/dia) podem ser expandidas — este formulário cobre o essencial.</div>
+        </div>
+
+        <div class="card">
+          <h2>Metas do mês</h2>
+          <div class="row">
+            <div><label>Ano</label><input id="gq-year" placeholder="2026" /></div>
+            <div><label>Mês</label><input id="gq-month" placeholder="5" /></div>
+            <div><label>Filtro user_id (opcional)</label><input id="gq-user" placeholder="ex: 5" /></div>
+            <button class="btn btn-outline" onclick="loadGoals()">Carregar</button>
+          </div>
+          <div style="margin-top:12px" id="goalsDump" class="muted">—</div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-history">
+        <div class="card">
+          <h2>Histórico de chats e coaching</h2>
+          <div class="row">
+            <div><label>Usuário (app_user_id)</label><input id="h-user" placeholder="ex: 5" /></div>
+            <button class="btn btn-outline" onclick="loadHistoryUser()">Ver chat</button>
+            <button class="btn btn-outline" onclick="loadCoachUser()">Ver coaching</button>
+          </div>
+          <pre id="historyDump" style="margin-top:12px;white-space:pre-wrap; background:#F9FAFB; border:1px solid var(--border); padding:12px; border-radius:12px; max-height:420px; overflow:auto">—</pre>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-reports">
+        <div class="card">
+          <h2>Relatórios Executivos</h2>
+          <p style="color:var(--text-secondary);font-size:14px;margin:0 0 16px">Gera um relatório HTML com conversão, pipeline e higiene a partir do warehouse. Somente admins podem acessar.</p>
+          <button class="btn btn-primary" onclick="generateReport()" id="btn-gen-report">📈 Gerar Relatório Executivo</button>
+          <div id="report-gen-status" style="margin-top:10px;font-size:14px"></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <h2>Relatórios Gerados</h2>
+          <button class="btn btn-outline btn-sm" onclick="loadReports()" style="margin-bottom:12px">🔄 Atualizar lista</button>
+          <div id="reports-list"><em style="color:var(--text-secondary)">Carregando...</em></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+function showMsg(text, ok){
+  const el=document.getElementById('msg');
+  el.textContent=text;
+  el.className='msg '+(ok?'ok':'err');
+  el.style.display='block';
+  setTimeout(()=>el.style.display='none', 4500);
+}
+
+for (const b of document.querySelectorAll('.tab')) {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    document.getElementById('panel-'+b.dataset.tab).classList.add('active');
+    if (b.dataset.tab === 'reports') loadReports();
+  });
+}
+
+async function loadUsers(){
+  const r=await fetch('/api/admin/users');
+  const users=await r.json();
+  const tbody=document.getElementById('users-table');
+  tbody.innerHTML = users.map(u=>{
+    const role = (u.role||'').toLowerCase();
+    const roleCls = role==='admin'?'role-admin':role==='gestor'?'role-gestor':role==='supervisor'?'role-supervisor':'role-vendedor';
+    return `
+    <tr>
+      <td><strong>${u.username}</strong></td>
+      <td>${u.display_name||'—'}</td>
+      <td><span class="badge role-badge ${roleCls}">${u.role||'—'}</span></td>
+      <td>${u.ploomes_user_id||'—'}</td>
+      <td><span class="badge">${u.active?'Ativo':'Inativo'}</span></td>
+      <td>
+        <button class="btn btn-outline btn-sm" onclick="toggleActive(${u.id}, ${u.active?0:1})">${u.active?'Desativar':'Ativar'}</button>
+        <button class="btn btn-outline btn-sm" onclick="editUser(${u.id})">Editar</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function createUser(){
+  const plSel = document.getElementById('new-ploomes-select');
+  const plInput = document.getElementById('new-ploomes'); // legacy (may not exist)
+  const ploomes_user_id = (plInput ? (plInput.value||'').trim() : '') || (plSel ? (plSel.value||'').trim() : '');
+
+  const body={
+    username: document.getElementById('new-username').value.trim().toLowerCase(),
+    password: document.getElementById('new-password').value,
+    role: document.getElementById('new-role').value,
+    display_name: document.getElementById('new-display').value.trim(),
+    ploomes_user_id,
+  };
+  const r=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();
+  if(d.error) return showMsg(d.error,false);
+  if(d.warning) showMsg(d.warning, false);
+  else if(d.ploomes_user_id) showMsg('Usuário criado (Ploomes ID: '+d.ploomes_user_id+').', true);
+  else showMsg('Usuário criado.', true);
+  loadUsers();
+}
+
+async function toggleActive(id, active){
+  const r=await fetch('/api/admin/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({active})});
+  const d=await r.json();
+  if(d.error) return showMsg(d.error,false);
+  showMsg('Atualizado.',true);
+  loadUsers();
+}
+
+async function editUser(id){
+  const display_name=prompt('Novo nome (deixe em branco para manter):');
+  const role=prompt('Nova role (admin/gestor/supervisor/vendedor — deixe em branco para manter):');
+  const password=prompt('Nova senha (deixe em branco para manter):');
+  const payload={};
+  if(display_name!==null && display_name.trim()) payload.display_name=display_name.trim();
+  if(role!==null && role.trim()) payload.role=role.trim();
+  if(password!==null && password.trim()) payload.password=password.trim();
+  // Ploomes ID é resolvido automaticamente pelo e-mail — não pedir ao usuário
+  const r=await fetch('/api/admin/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const d=await r.json();
+  if(d.error) return showMsg(d.error,false);
+  // Tentar resolver ploomes_id pelo email após edição
+  await fetch('/api/admin/users/'+id+'/resolve-ploomes',{method:'POST'}).catch(()=>{});
+  showMsg('Usuário atualizado.',true);
+  loadUsers();
+}
+
+async function loadTeams(){
+  const r=await fetch('/api/admin/teams');
+  const d=await r.json();
+  const sel=document.getElementById('team-select');
+  sel.innerHTML = (d.teams||[]).map(t=>`<option value="${t.id}">${t.name} (sup:${t.supervisor_user_id})</option>`).join('') || '<option value="">(sem equipes)</option>';
+  document.getElementById('teamsDump').textContent = JSON.stringify(d, null, 2);
+}
+async function createTeam(){
+  const body={name:document.getElementById('team-name').value.trim(), supervisor_user_id: Number(document.getElementById('team-supervisor').value)};
+  const r=await fetch('/api/admin/teams',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();
+  if(d.error) return showMsg(d.error,false);
+  showMsg('Equipe criada.',true);
+  loadTeams();
+}
+async function addMember(){
+  const teamId=document.getElementById('team-select').value;
+  const user_id=Number(document.getElementById('team-member').value);
+  const r=await fetch(`/api/admin/teams/${teamId}/members`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id})});
+  const d=await r.json();
+  if(d.error) return showMsg(d.error,false);
+  showMsg('Membro vinculado.',true);
+  loadTeams();
+}
+
+async function saveGoal(){
+  const body={
+    user_id:Number(document.getElementById('g-user').value),
+    year:Number(document.getElementById('g-year').value),
+    month:Number(document.getElementById('g-month').value),
+    valor_mensal:Number(document.getElementById('g-valor').value||0),
+    interacoes_semana:Number(document.getElementById('g-inter').value||0),
+  };
+  const r=await fetch('/api/goals',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();
+  if(d.error) return showMsg(d.error,false);
+  showMsg('Meta salva.',true);
+}
+async function loadGoals(){
+  const y=document.getElementById('gq-year').value||new Date().getFullYear();
+  const m=document.getElementById('gq-month').value||(new Date().getMonth()+1);
+  const u=document.getElementById('gq-user').value;
+  const url = '/api/goals?year='+encodeURIComponent(y)+'&month='+encodeURIComponent(m) + (u?('&userId='+encodeURIComponent(u)):'');
+  const r=await fetch(url);
+  const d=await r.json();
+  document.getElementById('goalsDump').textContent = JSON.stringify(d, null, 2);
+}
+
+async function loadHistoryUser(){
+  const u=document.getElementById('h-user').value;
+  const r=await fetch('/api/chat-history/'+encodeURIComponent(u));
+  const d=await r.json();
+  document.getElementById('historyDump').textContent = JSON.stringify(d, null, 2);
+}
+async function loadCoachUser(){
+  const u=document.getElementById('h-user').value;
+  const r=await fetch('/api/coaching-summaries/'+encodeURIComponent(u));
+  const d=await r.json();
+  document.getElementById('historyDump').textContent = JSON.stringify(d, null, 2);
+}
+
+async function initSidebarMe(){
+  try{
+    const r = await fetch('/api/me');
+    const m = await r.json();
+    document.getElementById('user-name').textContent = m.displayName || '—';
+    document.getElementById('user-role').textContent = m.role || '—';
+  } catch {}
+}
+
+async function loadPloomesUsers(){
+  try{
+    const r = await fetch('/api/ploomes-users');
+    const users = await r.json();
+    const sel = document.getElementById('new-ploomes-select');
+    if(!sel || !Array.isArray(users)) return;
+    const opts = ['<option value="">(auto / não preencher)</option>'];
+    for(const u of users){
+      const label = (u.name||'').replace(/</g,'&lt;').replace(/>/g,'&gt;') + ' — ' + (u.email||'') + ' (ID:'+u.id+')';
+      opts.push(`<option value="${u.id}">${label}</option>`);
+    }
+    sel.innerHTML = opts.join('');
+  } catch(e){
+    console.warn('Falha ao carregar usuários Ploomes:', e);
+  }
+}
+
+async function generateReport() {
+  const btn = document.getElementById('btn-gen-report');
+  const status = document.getElementById('report-gen-status');
+  btn.disabled = true;
+  btn.textContent = '⏳ Gerando...';
+  status.textContent = '';
+  try {
+    const r = await fetch('/api/admin/generate-report', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      status.innerHTML = `<span style="color:var(--success,#0a7a2a)">&#10003; Relatório gerado: <strong>${d.filename}</strong></span>`;
+      loadReports();
+    } else {
+      status.innerHTML = `<span style="color:#b00020">${d.error || 'Erro desconhecido'}</span>`;
+    }
+  } catch(e) {
+    status.innerHTML = `<span style="color:#b00020">Erro: ${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📈 Gerar Relatório Executivo';
+  }
+}
+
+async function loadReports() {
+  const el = document.getElementById('reports-list');
+  if (!el) return;
+  el.innerHTML = '<em style="color:var(--text-secondary)">Carregando...</em>';
+  try {
+    const r = await fetch('/api/admin/reports');
+    const d = await r.json();
+    if (!d.ok || !d.reports.length) {
+      el.innerHTML = '<em style="color:var(--text-secondary)">Nenhum relatório encontrado.</em>';
+      return;
+    }
+    const rows = d.reports.map(f => {
+      const kb = (f.sizeBytes / 1024).toFixed(1);
+      const date = f.createdAt ? f.createdAt.slice(0, 16).replace('T', ' ') : '';
+      const name = f.filename.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return `<tr>
+        <td style="font-size:13px">${name}</td>
+        <td style="font-size:13px;color:var(--text-secondary)">${date} UTC</td>
+        <td style="font-size:13px;color:var(--text-secondary)">${kb} KB</td>
+        <td><a href="/api/admin/reports/${encodeURIComponent(f.filename)}" download class="btn btn-outline btn-sm">⬇️ Baixar</a></td>
+      </tr>`;
+    }).join('');
+    el.innerHTML = `<table style="width:100%;border-collapse:collapse">
+      <thead><tr style="background:#f5f5f5">
+        <th style="padding:8px;text-align:left;font-size:13px">Arquivo</th>
+        <th style="padding:8px;text-align:left;font-size:13px">Criado em</th>
+        <th style="padding:8px;text-align:left;font-size:13px">Tamanho</th>
+        <th style="padding:8px"></th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+  } catch(e) {
+    el.innerHTML = `<em style="color:#b00020">Erro: ${e.message}</em>`;
+  }
+}
+
+initSidebarMe();
+loadPloomesUsers();
+loadUsers();
+loadTeams();
+</script>
+</body>
+</html>

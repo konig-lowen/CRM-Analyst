@@ -1,0 +1,26 @@
+# Dependências
+node_modules/
+
+# Bancos de dados (dados ao vivo — não versionar)
+*.db
+*.db-shm
+*.db-wal
+
+# Logs e backups
+*.log
+*.bak
+*.bak.*
+backups/
+
+# Segredos / variáveis de ambiente
+.env
+.env.*
+
+# Arquivos temporários
+*.tmp
+*.swp
+.DS_Store
+
+# Arquivos de build/cache
+.cache/
+server.js.orig

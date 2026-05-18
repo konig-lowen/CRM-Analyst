@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login — CRM Analyst</title>
+<style>
+  :root {
+    --bg: #F8F9FA;
+    --surface: #FFFFFF;
+    --border: #E5E7EB;
+    --text: #111827;
+    --muted: #6B7280;
+    --accent: #4F46E5;
+    --accent-hover: #4338CA;
+    --accent-light: #EEF2FF;
+    --danger: #DC2626;
+    --danger-light: #FEF2F2;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.04);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 40px 36px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: var(--shadow-md);
+  }
+  .logo {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+  .logo-icon {
+    font-size: 36px;
+    margin-bottom: 12px;
+  }
+  .logo h1 {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .logo p {
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 4px;
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+  }
+  input {
+    background: var(--surface);
+    border: 1px solid #D1D5DB;
+    border-radius: var(--radius);
+    color: var(--text);
+    padding: 10px 14px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color .2s, box-shadow .2s;
+    width: 100%;
+  }
+  input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(79,70,229,0.1);
+  }
+  input::placeholder { color: #9CA3AF; }
+  button[type="submit"] {
+    width: 100%;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    padding: 11px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: background .2s;
+  }
+  button[type="submit"]:hover { background: var(--accent-hover); }
+  .error {
+    background: var(--danger-light);
+    border: 1px solid #FECACA;
+    color: var(--danger);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    font-size: 13px;
+    margin-bottom: 16px;
+    text-align: center;
+  }
+  .divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 24px 0 20px;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <div class="logo-icon">📊</div>
+    <h1>CRM Analyst</h1>
+    <p>VetorV — Análise de Vendas</p>
+  </div>
+  <div id="error-msg" class="error" style="display:none">Usuário ou senha incorretos</div>
+  <form method="POST" action="/login" id="loginForm">
+    <div class="field">
+      <label for="username">E-mail</label>
+      <input type="text" id="username" name="username" autocomplete="username"
+        placeholder="seu@email.com" autofocus required>
+    </div>
+    <div class="field">
+      <label for="password">Senha</label>
+      <input type="password" id="password" name="password" autocomplete="current-password"
+        placeholder="••••••••" required>
+    </div>
+    <button type="submit">Entrar</button>
+  </form>
+</div>
+<script>
+  if (window.location.search.includes('error')) {
+    document.getElementById('error-msg').style.display = 'block';
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — CRM Analyst</title>
+<style>
+  :root {
+    --bg: #F8F9FA;
+    --surface: #FFFFFF;
+    --border: #E5E7EB;
+    --text: #111827;
+    --muted: #6B7280;
+    --accent: #4F46E5;
+    --accent-hover: #4338CA;
+    --accent-light: #EEF2FF;
+    --success: #059669;
+    --success-light: #ECFDF5;
+    --warning: #D97706;
+    --warning-light: #FFFBEB;
+    --danger: #DC2626;
+    --danger-light: #FEF2F2;
+    --sidebar-w: 220px;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.04);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .sidebar {
+    width: var(--sidebar-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    box-shadow: 2px 0 8px rgba(0,0,0,0.04);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    position: fixed;
+    left: 0; top: 0;
+    z-index: 10;
+    padding: 0;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 10px;
+    padding: 18px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand-icon { font-size: 22px; }
+  .brand-name { font-weight: 700; font-size: 15px; color: var(--text); }
+  .brand-sub { font-size: 11px; color: var(--muted); }
+  .nav { flex: 1; padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; }
+  .nav-link {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+  .nav-link:hover { background: var(--accent-light); color: var(--accent); }
+  .nav-link.active { background: var(--accent-light); color: var(--accent); font-weight: 600; }
+  .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+  .sidebar-footer {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  #user-name { font-size: 13px; font-weight: 600; color: var(--text); }
+  #user-role { font-size: 11px; color: var(--muted); }
+
+  .btn-outline {
+    background: var(--surface);
+    border: 1px solid #D1D5DB;
+    color: #374151;
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all .15s;
+    text-decoration: none;
+    text-align: center;
+  }
+  .btn-outline:hover { background: #F9FAFB; }
+  .btn-sm { padding: 7px 10px; font-size: 12px; border-radius: 8px; }
+
+  .main { margin-left: var(--sidebar-w); min-height: 100vh; display:flex; flex-direction:column; }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap: 12px;
+  }
+  .header-left { display:flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .header-left h1 { font-size: 16px; font-weight: 700; }
+  .pill {
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 12px;
+    color: #374151;
+    background: #F9FAFB;
+    font-weight: 600;
+  }
+  #updated { font-size: 12px; color: var(--muted); }
+
+  .container {
+    padding: 22px 20px;
+    max-width: 1100px;
+    width: 100%;
+  }
+
+  .grid { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    box-shadow: var(--shadow);
+  }
+  .k { font-size: 12px; color: var(--muted); }
+  .v { font-size: 22px; font-weight: 800; margin-top: 6px; }
+  .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .row { display:grid; grid-template-columns:1.2fr 0.8fr; gap:12px; margin-top: 12px; }
+
+  .list { margin-top: 10px; display:flex; flex-direction:column; gap: 8px; }
+  .item {
+    background: #F9FAFB;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    color: #374151;
+    font-size: 13px;
+  }
+
+  .bar {
+    height: 10px;
+    background: #F3F4F6;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 8px;
+  }
+  .bar > div {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--success), #10B981);
+  }
+
+  /* Barra de seleção fixa no topo do dashboard */
+  .vendor-bar {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 20px;
+    background: var(--accent-light);
+    border-bottom: 1px solid #c7d2fe;
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .vendor-bar label { white-space: nowrap; }
+  .vendor-bar select {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid #c7d2fe;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+    min-width: 200px;
+    max-width: 340px;
+  }
+  .vendor-bar select:focus { border-color: var(--accent); }
+  .float {
+    display: none; /* mantido para não quebrar JS, mas substituído visualmente */
+    padding: 10px;
+    outline: none;
+  }
+
+  @media (max-width: 980px) {
+    .grid { grid-template-columns:repeat(2, minmax(0,1fr)); }
+    .row { grid-template-columns: 1fr; }
+  }
+
+  /* Saúde do Funil */
+  .funnel-section { margin-top: 24px; }
+  .funnel-section h2 { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+  .funnel-grid { display: flex; flex-direction: column; gap: 10px; }
+  .funnel-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    padding: 14px 16px;
+    border-left: 5px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .funnel-card.status-limpo  { border-left-color: var(--success); }
+  .funnel-card.status-atencao{ border-left-color: var(--warning); }
+  .funnel-card.status-critico{ border-left-color: var(--danger); }
+  .funnel-card-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .funnel-name { font-weight: 700; font-size: 14px; }
+  .funnel-badge {
+    font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+  }
+  .badge-limpo   { background: var(--success-light); color: var(--success); }
+  .badge-atencao { background: var(--warning-light);  color: var(--warning); }
+  .badge-critico { background: var(--danger-light);   color: var(--danger);  }
+  .funnel-stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+  .funnel-stats strong { color: var(--text); }
+  .funnel-bar { height: 8px; background: #F3F4F6; border-radius: 999px; overflow: hidden; }
+  .funnel-bar-fill-limpo   { height: 100%; background: var(--success); border-radius: 999px; }
+  .funnel-bar-fill-atencao { height: 100%; background: var(--warning); border-radius: 999px; }
+  .funnel-bar-fill-critico { height: 100%; background: var(--danger);  border-radius: 999px; }
+  .funnel-actions { display: flex; gap: 8px; }
+  .btn-funnel {
+    background: var(--surface); border: 1px solid #D1D5DB; color: #374151;
+    border-radius: var(--radius); padding: 6px 11px;
+    font-weight: 600; font-size: 12px; cursor: pointer; transition: all .15s;
+  }
+  .btn-funnel:hover { background: #F9FAFB; }
+  .btn-funnel.danger { border-color: var(--danger); color: var(--danger); }
+  .btn-funnel.danger:hover { background: var(--danger-light); }
+
+  /* Modal Detalhes */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.4); z-index: 100;
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface); border-radius: var(--radius-lg);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+    width: 100%; max-width: 640px; max-height: 85vh;
+    overflow-y: auto; padding: 20px;
+  }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .modal-header h3 { font-size: 15px; font-weight: 700; }
+  .modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: var(--muted); }
+  .deal-item {
+    background: #F9FAFB; border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 10px 12px; margin-bottom: 8px; font-size: 13px;
+  }
+  .deal-item-name { font-weight: 600; margin-bottom: 4px; }
+  .deal-item-meta { color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .deal-days-danger { color: var(--danger); font-weight: 700; }
+  .deal-days-warn   { color: var(--warning); font-weight: 700; }
+</style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">📊</div>
+      <div>
+        <div class="brand-name">CRM Analyst</div>
+        <div class="brand-sub">VetorV</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <a href="/" class="nav-link"><span class="nav-icon">💬</span> Chat</a>
+      <a href="/coach" class="nav-link"><span class="nav-icon">🎯</span> Coach AI</a>
+      <a href="/dashboard" class="nav-link active"><span class="nav-icon">📈</span> Dashboard</a>
+      <a href="/ranking" class="nav-link"><span class="nav-icon">🏆</span> Ranking</a>
+      <a href="/reports" class="nav-link"><span class="nav-icon">📄</span> Relatórios</a>
+      <a id="adminLink" href="/admin" class="nav-link" style="display:none"><span class="nav-icon">⚙️</span> Usuários</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div id="user-name">—</div>
+        <div id="user-role" class="muted">—</div>
+      </div>
+      <a href="/logout" class="btn-outline btn-sm">Sair</a>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header>
+      <div class="header-left">
+        <h1>Dashboard</h1>
+        <span id="who" class="pill">—</span>
+        <span id="score" class="pill">Score CRM: —</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div id="updated">—</div>
+        <button id="btnRefresh" onclick="forceRefresh()" style="display:none;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:12px">🔄 Atualizar</button>
+      </div>
+    </header>
+
+    <div class="vendor-bar" id="vendorBar">
+      <label for="vendorSelect">👁️ Analisando vendedor:</label>
+      <select id="vendorSelect"></select>
+      <label for="pipelineSelect" style="margin-left:1rem">📂 Funil:</label>
+      <select id="pipelineSelect"></select>
+    </div>
+
+    <div class="container">
+      <div class="grid">
+        <div class="card"><div class="k">Deals Abertos</div><div class="v" id="k1">—</div><div class="sub" id="k1s">—</div></div>
+        <div class="card"><div class="k">Ganhos (mês)</div><div class="v" id="k2">—</div><div class="sub" id="k2s">—</div></div>
+        <div class="card"><div class="k">Interações (30d)</div><div class="v" id="k3">—</div><div class="sub" id="k3s">—</div></div>
+        <div class="card"><div class="k">Tarefas vencidas</div><div class="v" id="k4">—</div><div class="sub" id="k4s">—</div></div>
+      </div>
+
+      <div class="row">
+        <div class="card">
+          <div class="k">Metas vs Realizado</div>
+          <div class="sub" id="goalsHint">—</div>
+          <div class="bar"><div id="goalBar"></div></div>
+          <div class="sub" id="goalText" style="margin-top:8px">—</div>
+
+          <div class="k" style="margin-top:14px">Último resumo do coach</div>
+          <div class="list" id="coachList"><div class="item">Carregando...</div></div>
+        </div>
+        <div class="card">
+          <div class="k">Alertas</div>
+          <div class="list" id="alerts"><div class="item">Carregando...</div></div>
+
+          <div class="k" style="margin-top:14px">Interações por tipo (30d)</div>
+          <div class="list" id="interByType"><div class="item">Carregando...</div></div>
+        </div>
+      </div>
+
+      <!-- Saúde do Funil (admin/gestor/supervisor only) -->
+      <div class="funnel-section" id="funnelSection" style="display:none">
+        <h2>🪴 Saúde do Funil</h2>
+        <div class="funnel-grid" id="funnelGrid">
+          <div class="item">Carregando...</div>
+        </div>
+      </div>
+
+      <!-- CRM Hygiene Section -->
+      <div class="funnel-section" id="crmHygieneSection" style="display:none">
+        <h2>🧹 Higiene do CRM — Score por Vendedor</h2>
+        <div class="funnel-grid" id="hygieneGrid">
+          <div class="item">Carregando...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Detalhes CRM Hygiene -->
+  <div class="modal-overlay" id="hygieneModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="hygieneModalTitle">Problemas de Higiene</h3>
+        <button class="modal-close" onclick="closeHygieneModal()">✕</button>
+      </div>
+      <div id="hygieneModalBody"></div>
+    </div>
+  </div>
+
+  <!-- Modal Detalhes -->
+  <div class="modal-overlay" id="funnelModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modalTitle">Deals Problemáticos</h3>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+
+
+<script>
+let me = null;
+let selectedUserId = null;
+let selectedPipelineId = null;
+let funnelData = []; // store for modal
+
+// ─── sessionStorage cache helpers ────────────────────────────
+const CACHE_TTL = 4 * 60 * 60 * 1000; // 4h
+function cacheKey(suffix) { return 'cache_' + suffix; }
+function cacheRead(key) {
+  try {
+    const raw = sessionStorage.getItem(cacheKey(key));
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    if (Date.now() - ts > CACHE_TTL) { sessionStorage.removeItem(cacheKey(key)); return null; }
+    return data;
+  } catch { return null; }
+}
+function cacheWrite(key, data) {
+  try { sessionStorage.setItem(cacheKey(key), JSON.stringify({ data, ts: Date.now() })); } catch {}
+}
+function cacheClear(key) {
+  try { sessionStorage.removeItem(cacheKey(key)); } catch {}
+}
+async function cachedFetch(key, fetchFn) {
+  const hit = cacheRead(key);
+  if (hit !== null) return hit;
+  const data = await fetchFn();
+  cacheWrite(key, data);
+  return data;
+}
+function dashCacheKeys() {
+  const uid = selectedUserId || '';
+  const pid = selectedPipelineId || '';
+  return [
+    `dashboard_${uid}_${pid}`,
+    `funnelHealth_${uid}_${pid}`,
+    `crmHygiene_${uid}_${pid}`,
+  ];
+}
+function forceRefresh() {
+  dashCacheKeys().forEach(k => cacheClear(k));
+  loadDashboard();
+  if (me && ['admin','gestor','supervisor'].includes(me.role)) {
+    loadFunnelHealth();
+    loadCrmHygiene();
+  }
+}
+
+function moneyBR(v){
+  const n = Number(v || 0);
+  return n.toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
+}
+
+async function loadFunnelHealth(){
+  const section = document.getElementById('funnelSection');
+  const grid = document.getElementById('funnelGrid');
+  section.style.display = 'block';
+  const fhKey = `funnelHealth_${selectedUserId||''}_${selectedPipelineId||''}`;
+  const cached = cacheRead(fhKey);
+  if (cached === null) grid.innerHTML = '<div class="item">Carregando saúde do funil...</div>';
+  try {
+    const params = new URLSearchParams();
+    if (selectedPipelineId) params.set('pipelineId', selectedPipelineId);
+    let data = await cachedFetch(fhKey, async () => {
+      const r = await fetch('/api/funnel-health' + (params.toString() ? '?' + params.toString() : ''));
+      return r.json();
+    });
+    funnelData = data;
+
+    // Supervisor: filtrar por allowedIds baseado nos vendedores que o /api/ploomes-users retorna
+    if (me.role === 'supervisor') {
+      const r2 = await fetch('/api/ploomes-users');
+      const allowed = await r2.json();
+      const allowedIds = new Set(allowed.map(u => u.id));
+      data = data.filter(row => allowedIds.has(row.ownerId));
+    }
+
+    if (!data.length) {
+      grid.innerHTML = '<div class="item">✔️ Nenhum vendedor com deals sujos. Funil limpo!</div>';
+      return;
+    }
+
+    const badgeMap = { limpo: '🟢 Limpo', atencao: '🟡 Atenção', critico: '🔴 Crítico' };
+    grid.innerHTML = data.map((row, i) => {
+      const pct = row.total > 0 ? Math.round((row.dirty / row.total) * 100) : 0;
+      const statusLabel = badgeMap[row.status] || row.status;
+      return `
+        <div class="funnel-card status-${row.status}">
+          <div class="funnel-card-top">
+            <span class="funnel-name">${row.ownerName}</span>
+            <span class="funnel-badge badge-${row.status}">${statusLabel}</span>
+          </div>
+          <div class="funnel-bar">
+            <div class="funnel-bar-fill-${row.status}" style="width:${pct}%"></div>
+          </div>
+          <div class="funnel-stats">
+            <span>🚨 Críticos: <strong>${row.critical}</strong></span>
+            <span>⚠️ Sujos: <strong>${row.dirty}</strong></span>
+            <span>Total: <strong>${row.total}</strong></span>
+            <span>Em risco: <strong>${moneyBR(row.dirtyValue)}</strong></span>
+          </div>
+          <div class="funnel-actions">
+            <button class="btn-funnel" onclick="openModal(${i})">Ver detalhes</button>
+            <button class="btn-funnel danger" onclick="cobrVendedor(${row.ownerId}, '${row.ownerName.replace(/'/g,'&apos;')}')">Cobrar vendedor</button>
+          </div>
+        </div>`;
+    }).join('');
+  } catch(e) {
+    grid.innerHTML = `<div class="item">Erro ao carregar saúde do funil: ${e.message}</div>`;
+  }
+}
+
+let hygieneData = [];
+
+async function loadCrmHygiene() {
+  const section = document.getElementById('crmHygieneSection');
+  const grid = document.getElementById('hygieneGrid');
+  section.style.display = 'block';
+  const hygKey = `crmHygiene_${selectedUserId||''}_${selectedPipelineId||''}`;
+  const hygCached = cacheRead(hygKey);
+  if (hygCached === null) grid.innerHTML = '<div class="item">Carregando higiene do CRM...</div>';
+  try {
+    const data = await cachedFetch(hygKey, async () => {
+      const r = await fetch('/api/crm-health');
+      return r.json();
+    });
+    if (data.error) { grid.innerHTML = `<div class="item">Erro: ${data.error}</div>`; return; }
+    hygieneData = data.vendors || [];
+
+    // Supervisor: filter
+    let vendors = hygieneData;
+    if (me.role === 'supervisor') {
+      const r2 = await fetch('/api/ploomes-users');
+      const allowed = await r2.json();
+      const allowedIds = new Set(allowed.map(u => u.ploomesUserId || u.ploomes_user_id));
+      vendors = vendors.filter(v => allowedIds.has(v.ownerId));
+    }
+
+    if (!vendors.length) { grid.innerHTML = '<div class="item">✅ Nenhum vendedor com problemas de higiene.</div>'; return; }
+
+    const scoreBadge = s => s >= 80 ? '<span class="funnel-badge badge-limpo">🟢 Bom</span>' : s >= 60 ? '<span class="funnel-badge badge-atencao">🟡 Regular</span>' : '<span class="funnel-badge badge-critico">🔴 Sujo</span>';
+    const abandonBadge = c => c === 'critico' ? '🔴 Crítico' : c === 'atencao' ? '🟡 Atenção' : '🟢 OK';
+
+    grid.innerHTML = vendors.map((v, i) => `
+      <div class="funnel-card status-${v.hygieneLabel === 'bom' ? 'limpo' : v.hygieneLabel === 'regular' ? 'atencao' : 'critico'}">
+        <div class="funnel-card-top">
+          <span class="funnel-name">${v.ownerName}</span>
+          ${scoreBadge(v.hygieneScore)}
+        </div>
+        <div class="funnel-bar">
+          <div class="funnel-bar-fill-${v.hygieneLabel === 'bom' ? 'limpo' : v.hygieneLabel === 'regular' ? 'atencao' : 'critico'}" style="width:${v.hygieneScore}%"></div>
+        </div>
+        <div class="funnel-stats">
+          <span>Score: <strong>${v.hygieneScore}/100</strong></span>
+          <span>Abandonados: <strong>${v.abandoned.count}</strong> (${abandonBadge(v.abandoned.classification)})</span>
+          <span>Sem valor: <strong>${v.noValue.count}</strong></span>
+          <span>Perdas sem motivo: <strong>${v.lostNoReason.noReason}/${v.lostNoReason.total}</strong>${v.lostNoReason.pct !== null ? ` (${v.lostNoReason.pct}%)` : ''}</span>
+        </div>
+        <div class="funnel-actions">
+          <button class="btn-funnel" onclick="openHygieneModal(${i})">Ver detalhes</button>
+          <button class="btn-funnel danger" onclick="cobrVendedorHigiene(${v.ownerId}, '${v.ownerName.replace(/'/g,'&apos;')}', ${v.abandoned.count}, ${v.noValue.count}, ${v.lostNoReason.noReason})">Cobrar vendedor</button>
+        </div>
+      </div>`).join('');
+  } catch(e) {
+    document.getElementById('hygieneGrid').innerHTML = `<div class="item">Erro: ${e.message}</div>`;
+  }
+}
+
+function openHygieneModal(idx) {
+  const v = hygieneData[idx];
+  if (!v) return;
+  document.getElementById('hygieneModalTitle').textContent = `Problemas de Higiene — ${v.ownerName}`;
+  const sections = [];
+  if (v.abandoned.deals.length) {
+    sections.push(`<h4 style="margin:12px 0 6px;font-size:13px;color:#DC2626">🔴 Deals Abandonados (${v.abandoned.deals.length})</h4>` +
+      v.abandoned.deals.map(d => `<div class="deal-item"><div class="deal-item-meta"><span>#${d.id}</span><span>Funil: ${d.pipeline}</span><span>Parado: <strong>${d.daysStale}d</strong></span><span>${moneyBR(d.amount)}</span></div></div>`).join(''));
+  }
+  if (v.noValue.deals.length) {
+    sections.push(`<h4 style="margin:12px 0 6px;font-size:13px;color:#D97706">🟡 Deals Sem Valor (${v.noValue.deals.length})</h4>` +
+      v.noValue.deals.map(d => `<div class="deal-item"><div class="deal-item-meta"><span>#${d.id}</span><span>Funil: ${d.pipeline}</span></div></div>`).join(''));
+  }
+  if (v.lostNoReason.deals.length) {
+    sections.push(`<h4 style="margin:12px 0 6px;font-size:13px;color:#DC2626">❌ Perdas Sem Motivo (${v.lostNoReason.deals.length})</h4>` +
+      v.lostNoReason.deals.map(d => `<div class="deal-item"><div class="deal-item-meta"><span>#${d.id}</span><span>Funil: ${d.pipeline}</span><span>Data: ${d.finishDate ? new Date(d.finishDate).toLocaleDateString('pt-BR') : '—'}</span></div></div>`).join(''));
+  }
+  document.getElementById('hygieneModalBody').innerHTML = sections.join('') || '<div class="item">✅ Sem problemas encontrados.</div>';
+  document.getElementById('hygieneModal').classList.add('open');
+}
+
+function closeHygieneModal() {
+  document.getElementById('hygieneModal').classList.remove('open');
+}
+
+function cobrVendedorHigiene(ownerId, ownerName, abandoned, noValue, noReason) {
+  const lines = [];
+  if (abandoned > 0) lines.push(`- ${abandoned} deal(s) sem atualização há mais de 90 dias`);
+  if (noValue > 0) lines.push(`- ${noValue} deal(s) sem valor preenchido`);
+  if (noReason > 0) lines.push(`- ${noReason} perda(s) sem motivo registrado`);
+  const context = lines.join('\n');
+  const msg = encodeURIComponent(`Olá! Identificamos alguns pontos de melhoria no CRM de ${ownerName}:\n${context}\nPode nos ajudar a atualizar esses dados?`);
+  window.location.href = `/coach?ploomesId=${ownerId}&to=${encodeURIComponent(ownerName)}&prefill=${msg}`;
+}
+
+document.addEventListener('click', function(e) {
+  if (e.target === document.getElementById('hygieneModal')) closeHygieneModal();
+});
+
+function openModal(idx) {
+  const row = funnelData[idx];
+  if (!row) return;
+  document.getElementById('modalTitle').textContent = `Deals Problemáticos — ${row.ownerName}`;
+  const deals = row.dirtyDeals || [];
+  const html = deals.length ? deals.map(d => {
+    const cls = d.days > 60 ? 'deal-days-danger' : 'deal-days-warn';
+    return `<div class="deal-item">
+      <div class="deal-item-name">${d.name}</div>
+      <div class="deal-item-meta">
+        <span>📊 ${d.pipeline} › ${d.stage}</span>
+        <span>💰 ${moneyBR(d.amount)}</span>
+        <span class="${cls}">⏱️ Parado há ${d.days} dias</span>
+        <span>Atualizado em ${d.lastUpdateDate}</span>
+      </div>
+    </div>`;
+  }).join('') : '<div class="item">Nenhum deal problemático.</div>';
+  document.getElementById('modalBody').innerHTML = html;
+  document.getElementById('funnelModal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('funnelModal').classList.remove('open');
+}
+
+function cobrVendedor(ownerId, ownerName) {
+  const msg = encodeURIComponent(`Olá! Gostaria de conversar sobre a atualização dos seus deals em aberto. Alguns estão sem movimentação há mais de 30 dias. Pode me atualizar o status?`);
+  window.location.href = `/index.html?ploomesId=${ownerId}&to=${encodeURIComponent(ownerName)}&prefill=${msg}`;
+}
+
+// Fechar modal ao clicar fora
+document.addEventListener('click', function(e) {
+  const modal = document.getElementById('funnelModal');
+  if (e.target === modal) closeModal();
+});
+
+async function loadVendors(){
+  if (!me || !['admin','gestor','supervisor'].includes(me.role)) return;
+  // Garante que o seletor é visível
+  const bar = document.getElementById('vendorBar');
+  if (bar) bar.style.display = 'flex';
+  const r = await fetch('/api/ploomes-users');
+  if (!r.ok) return;
+  const users = await r.json();
+  const sel = document.getElementById('vendorSelect');
+  const defaultLabel = (me.role === 'supervisor') ? '(Minha equipe)' : '(Todos os vendedores)';
+  sel.innerHTML = `<option value="">${defaultLabel}</option>` +
+    users.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+  sel.addEventListener('change', () => {
+    selectedUserId = sel.value ? Number(sel.value) : null;
+    loadDashboard();
+    loadFunnelHealth();
+    loadCrmHygiene();
+  });
+
+  // Load pipeline filter
+  const rp = await fetch('/api/pipelines-active');
+  if (rp.ok) {
+    const pipelines = await rp.json();
+    const psel = document.getElementById('pipelineSelect');
+    psel.innerHTML = '<option value="">(Todos os funis)</option>' +
+      pipelines.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    psel.addEventListener('change', () => {
+      selectedPipelineId = psel.value ? Number(psel.value) : null;
+      loadDashboard();
+      loadFunnelHealth();
+      loadCrmHygiene();
+    });
+  }
+}
+
+async function loadDashboard(){
+  const params = new URLSearchParams();
+  if (selectedUserId) params.set('ploomesId', selectedUserId);
+  if (selectedPipelineId) params.set('pipelineId', selectedPipelineId);
+  const url = '/api/dashboard' + (params.toString() ? '?' + params.toString() : '');
+  const dashKey = `dashboard_${selectedUserId||''}_${selectedPipelineId||''}`;
+  const d = await cachedFetch(dashKey, async () => {
+    const r = await fetch(url);
+    return r.json();
+  });
+
+  document.getElementById('k1').textContent = d.dealsAbertos ?? '—';
+  document.getElementById('k2').textContent = moneyBR(d.ganhosMs?.valor || 0);
+  document.getElementById('k2s').textContent = `${d.ganhosMs?.count || 0} ganho(s)`;
+
+  const interTotal = Object.values(d.interacoes30d || {}).reduce((a,b)=>a+b,0);
+  document.getElementById('k3').textContent = interTotal;
+  const topInter = Object.entries(d.interacoes30d || {}).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k,v])=>`${k}: ${v}`).join(' • ');
+  document.getElementById('k3s').textContent = topInter || '—';
+
+  document.getElementById('k4').textContent = d.tarefasVencidas ?? '—';
+  document.getElementById('score').textContent = `Score CRM: ${d.scorecrm ?? '—'}`;
+  document.getElementById('updated').textContent = `Dados: ${new Date().toLocaleString('pt-BR')}`;
+
+  const goal = d.metaVsRealizado?.goal;
+  if (!goal) {
+    document.getElementById('goalsHint').textContent = 'Sem metas cadastradas para este mês.';
+    document.getElementById('goalBar').style.width = '0%';
+    document.getElementById('goalText').textContent = '—';
+  } else {
+    const realizado = d.metaVsRealizado?.realizado?.ganhosMes || 0;
+    const alvo = Number(goal.valor_mensal || 0);
+    const pct = alvo > 0 ? Math.max(0, Math.min(1, realizado / alvo)) : 0;
+    document.getElementById('goalsHint').textContent = `Meta mensal: ${moneyBR(alvo)}`;
+    document.getElementById('goalBar').style.width = Math.round(pct * 100) + '%';
+    document.getElementById('goalText').textContent = `Realizado: ${moneyBR(realizado)} (${Math.round(pct*100)}%)`;
+  }
+
+  const alerts = d.alertas || [];
+  document.getElementById('alerts').innerHTML = alerts.length ? alerts.map(a => `<div class="item">⚠️ ${a}</div>`).join('') : '<div class="item">Sem alertas críticos.</div>';
+
+  const iby = Object.entries(d.interacoes30d || {}).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  document.getElementById('interByType').innerHTML = iby.length ? iby.map(([k,v]) => `<div class="item">${k}: <strong>${v}</strong></div>`).join('') : '<div class="item">—</div>';
+
+  const uid = selectedUserId || me.userId;
+  const r2 = await fetch(`/api/coaching-summaries/${uid}`);
+  const cs = await r2.json();
+  document.getElementById('coachList').innerHTML = (cs && cs.length)
+    ? cs.slice(0,1).map(c => `<div class="item">${(c.summary || '').replace(/\n/g,'<br>')}</div>`).join('')
+    : '<div class="item">Sem resumo do coach ainda.</div>';
+}
+
+async function init(){
+  const r = await fetch('/api/me');
+  me = await r.json();
+  document.getElementById('who').textContent = `${me.displayName} • ${me.role}`;
+  try {
+    document.getElementById('user-name').textContent = me.displayName || '—';
+    document.getElementById('user-role').textContent = me.role || '—';
+  } catch {}
+
+  // Botão Atualizar: apenas admin e gestor
+  if (['admin','gestor'].includes(me.role)) {
+    document.getElementById('btnRefresh').style.display = 'inline-block';
+  }
+
+  if (['admin','gestor','supervisor'].includes(me.role)) {
+    document.getElementById('adminLink').style.display = 'flex';
+    document.getElementById('vendorBar').style.display = 'flex';
+    await loadVendors();
+  }
+  if (['admin','gestor','supervisor'].includes(me.role)) {
+    await loadFunnelHealth();
+    await loadCrmHygiene();
+  }
+  await loadDashboard();
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CRM Analyst — VetorV</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<style>
+  :root {
+    --bg: #F8F9FA;
+    --surface: #FFFFFF;
+    --border: #E5E7EB;
+    --text: #111827;
+    --muted: #6B7280;
+    --accent: #4F46E5;
+    --accent-hover: #4338CA;
+    --accent-light: #EEF2FF;
+    --success: #059669;
+    --success-light: #ECFDF5;
+    --warning: #D97706;
+    --warning-light: #FFFBEB;
+    --danger: #DC2626;
+    --danger-light: #FEF2F2;
+    --sidebar-w: 220px;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.04);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* Sidebar (mandatory) */
+  .sidebar {
+    width: var(--sidebar-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    box-shadow: 2px 0 8px rgba(0,0,0,0.04);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 10;
+    padding: 0;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 18px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand-icon { font-size: 22px; }
+  .brand-name { font-weight: 700; font-size: 15px; color: var(--text); }
+  .brand-sub { font-size: 11px; color: var(--muted); }
+  .nav {
+    flex: 1;
+    padding: 12px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .nav-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+  .nav-link:hover { background: var(--accent-light); color: var(--accent); }
+  .nav-link.active { background: var(--accent-light); color: var(--accent); font-weight: 600; }
+  .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+  /* Sessões do chat na sidebar */
+  .sessions-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px 4px;
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .sessions-list { overflow-y: auto; flex: 1; padding: 0 8px 8px; }
+  .session-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--muted);
+    transition: all 0.15s;
+    gap: 6px;
+  }
+  .session-item:hover { background: var(--bg); color: var(--text); }
+  .session-item.active { background: var(--accent-light); color: var(--accent); font-weight: 600; }
+  .session-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .session-del {
+    opacity: 0; font-size: 14px; cursor: pointer; color: var(--muted);
+    background: none; border: none; padding: 0 2px; border-radius: 4px;
+    transition: opacity 0.15s;
+  }
+  .session-item:hover .session-del { opacity: 1; }
+  .session-del:hover { color: var(--danger); }
+  .btn-new-chat {
+    display: flex; align-items: center; gap: 6px;
+    padding: 3px 8px; border-radius: 6px;
+    background: var(--accent); color: white;
+    border: none; font-size: 11px; cursor: pointer;
+    font-weight: 600;
+  }
+  .btn-new-chat:hover { background: var(--accent-hover); }
+
+  .sidebar-footer {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  #user-name { font-size: 13px; font-weight: 600; color: var(--text); }
+  #user-role { font-size: 11px; color: var(--muted); }
+
+  /* Buttons */
+  .btn {
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-outline {
+    background: var(--surface);
+    border-color: #D1D5DB;
+    color: #374151;
+  }
+  .btn-outline:hover { background: #F9FAFB; }
+  .btn-sm { padding: 7px 10px; font-size: 12px; border-radius: 8px; }
+
+  /* Main layout */
+  .main {
+    margin-left: var(--sidebar-w);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .header-left { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
+  .header-left h1 { font-size: 16px; font-weight: 700; }
+  .header-left .user-badge { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 380px; }
+  .header-center { display: flex; justify-content: center; }
+  .score {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: #F9FAFB;
+    color: #374151;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .header-right { display: flex; justify-content: flex-end; gap: 10px; align-items: center; }
+
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 22px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .msg {
+    display: flex;
+    gap: 10px;
+    max-width: 980px;
+    width: 100%;
+  }
+  .msg.user { align-self: flex-end; flex-direction: row-reverse; }
+  .msg.assistant { align-self: flex-start; }
+
+  .avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .bubble {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-size: 14px;
+    line-height: 1.6;
+    box-shadow: var(--shadow);
+    max-width: calc(100% - 50px);
+    color: var(--text);
+  }
+  .msg.user .bubble {
+    background: var(--accent);
+    border-color: rgba(79,70,229,0.45);
+    color: #fff;
+  }
+  .msg.user .bubble a { color: #fff; text-decoration: underline; }
+
+  .timestamp {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 6px;
+    text-align: right;
+  }
+  .msg.assistant .timestamp { text-align: left; }
+
+  .typing { display:flex; gap: 6px; align-items: center; }
+  .dot { width: 7px; height: 7px; background: #9CA3AF; border-radius: 50%; animation: blink 1.2s infinite; }
+  .dot:nth-child(2) { animation-delay: 0.2s; }
+  .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink { 0%, 80%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
+
+  /* Sugestões rápidas */
+  .quick-suggestions {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding: 10px 16px 0;
+    background: var(--surface);
+  }
+  .quick-btn {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .quick-btn:hover {
+    background: var(--accent-light);
+    color: var(--accent);
+    border-color: #c7d2fe;
+  }
+
+  .composer {
+    padding: 12px 20px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    display:flex;
+    gap: 10px;
+    align-items: flex-end;
+    flex-shrink: 0;
+  }
+  textarea {
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid #D1D5DB;
+    border-radius: 12px;
+    color: var(--text);
+    padding: 11px 12px;
+    resize: none;
+    outline: none;
+    min-height: 44px;
+    max-height: 120px;
+    font-size: 14px;
+    line-height: 1.4;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
+  textarea::placeholder { color: #9CA3AF; }
+  .send {
+    background: var(--accent);
+    border: none;
+    color: #fff;
+    border-radius: 12px;
+    padding: 11px 14px;
+    cursor: pointer;
+    font-weight: 700;
+  }
+  .send:hover { background: var(--accent-hover); }
+  .send:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  /* barra de seleção de vendedor — fixa abaixo do header, só para admin/gestor/supervisor */
+  .vendor-bar {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 20px;
+    background: var(--accent-light);
+    border-bottom: 1px solid #c7d2fe;
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .vendor-bar label { white-space: nowrap; }
+  .vendor-bar select {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid #c7d2fe;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+    min-width: 200px;
+    max-width: 320px;
+  }
+  .vendor-bar select:focus { border-color: var(--accent); }
+
+  @media (max-width: 920px) {
+    header { grid-template-columns: 1fr; gap: 8px; }
+    .header-center { justify-content: flex-start; }
+    .header-right { justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">📊</div>
+      <div>
+        <div class="brand-name">CRM Analyst</div>
+        <div class="brand-sub">VetorV</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <a href="/" class="nav-link active"><span class="nav-icon">💬</span> Chat</a>
+      <a href="/coach" class="nav-link"><span class="nav-icon">🎯</span> Coach AI</a>
+      <a href="/dashboard" class="nav-link"><span class="nav-icon">📈</span> Dashboard</a>
+      <a href="/ranking" class="nav-link"><span class="nav-icon">🏆</span> Ranking</a>
+      <a href="/reports" class="nav-link"><span class="nav-icon">📄</span> Relatórios</a>
+      <a id="adminLink" href="/admin" class="nav-link" style="display:none"><span class="nav-icon">⚙️</span> Usuários</a>
+    </nav>
+    <div class="sessions-header">
+      <span>Conversas</span>
+      <button class="btn-new-chat" id="btnNewChat" title="Nova conversa">＋ Nova</button>
+    </div>
+    <div class="sessions-list" id="sessionsList">
+      <!-- populado via JS -->
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div id="user-name">—</div>
+        <div id="user-role" class="muted">—</div>
+      </div>
+      <a href="/logout" class="btn-outline btn-sm" style="text-decoration:none; text-align:center;">Sair</a>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header>
+      <div class="header-left">
+        <h1>Chat IA</h1>
+        <span id="user" class="user-badge">—</span>
+      </div>
+      <div class="header-center">
+        <span class="score" id="scorecrm" title="Pontuação CRM do mês">Score CRM: —</span>
+      </div>
+      <div class="header-right">
+        <button class="btn btn-outline btn-sm" onclick="clearHistory()">Limpar</button>
+      </div>
+    </header>
+
+    <div class="vendor-bar" id="vendorBar">
+      <label for="vendorSelect">👁️ Analisando:</label>
+      <select id="vendorSelect"></select>
+    </div>
+
+    <div id="messages"></div>
+
+    <div class="quick-suggestions" id="quickSuggestions">
+      <button class="quick-btn" onclick="quickSend('Quais são minhas tarefas vencidas hoje?')">⏰ Tarefas vencidas</button>
+      <button class="quick-btn" onclick="quickSend('Quais oportunidades estão sem follow-up há mais de 15 dias?')">💤 Follows parados</button>
+      <button class="quick-btn" onclick="quickSend('Quais deals estão abertos há mais de 30 dias sem atualização?')">🕰️ Deals estagnados</button>
+      <button class="quick-btn" onclick="quickSend('Quais contatos estão sem interação nos últimos 30 dias?')">👤 Contatos frios</button>
+      <button class="quick-btn" onclick="quickSend('Como está meu ranking e performance este mês?')">🏆 Meu ranking</button>
+    </div>
+
+    <div class="composer">
+      <textarea id="input" placeholder="Pergunte algo... (Enter envia, Shift+Enter quebra linha)"></textarea>
+      <button id="sendBtn" class="send" onclick="sendFromInput()">Enviar</button>
+    </div>
+  </div>
+
+
+
+<script>
+let isLoading = false;
+let me = null;
+let selectedUserId = null;
+let currentSessionId = null; // sessão de chat ativa
+
+// ─── Gerenciamento de sessões de chat ───
+async function loadChatSessions() {
+  const r = await fetch('/api/chat-sessions');
+  if (!r.ok) return;
+  const sessions = await r.json();
+  const list = document.getElementById('sessionsList');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!sessions.length) {
+    list.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--muted)">Nenhuma conversa ainda</div>';
+    return;
+  }
+  for (const s of sessions) {
+    const div = document.createElement('div');
+    div.className = 'session-item' + (s.id === currentSessionId ? ' active' : '');
+    div.dataset.id = s.id;
+    const ts = new Date(s.last_message_at).toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit'});
+    div.innerHTML = `
+      <span class="session-title" title="${escapeHtml(s.title)}">${escapeHtml(s.title)}</span>
+      <span style="font-size:10px;color:var(--muted);white-space:nowrap">${ts}</span>
+      <button class="session-del" data-del="${s.id}" title="Excluir">✕</button>`;
+    div.addEventListener('click', (e) => {
+      if (e.target.dataset.del) return;
+      openChatSession(Number(div.dataset.id), s.title);
+    });
+    div.querySelector('.session-del').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm('Excluir esta conversa?')) return;
+      await fetch('/api/chat-sessions/' + s.id, { method: 'DELETE' });
+      if (currentSessionId === s.id) { currentSessionId = null; await newChatSession(); }
+      else await loadChatSessions();
+    });
+    list.appendChild(div);
+  }
+}
+
+async function openChatSession(id, title) {
+  currentSessionId = id;
+  document.getElementById('messages').innerHTML = '';
+  await loadChatSessions(); // atualiza highlight
+  // Carregar histórico da sessão
+  const r = await fetch('/api/chat-sessions/' + id + '/messages');
+  if (!r.ok) return;
+  const msgs = await r.json();
+  for (const m of msgs) addMessage(m.role, m.content, m.created_at);
+  // Atualizar título no header
+  const h1 = document.querySelector('header h1');
+  if (h1) h1.textContent = title || 'Chat IA';
+}
+
+async function newChatSession() {
+  const r = await fetch('/api/chat-sessions', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ title: 'Nova conversa' }) });
+  const data = await r.json();
+  currentSessionId = data.id;
+  document.getElementById('messages').innerHTML = '';
+  const h1 = document.querySelector('header h1');
+  if (h1) h1.textContent = 'Chat IA';
+  addMessage('assistant', 'Olá! Sou seu analista de CRM. Como posso te ajudar? Pergunte sobre pipeline, vendedores, tarefas, ranking ou qualquer análise do Ploomes.');
+  await loadChatSessions();
+}
+
+function escapeHtml(unsafe) {
+  return (unsafe || '')
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function fmtTs(ts) {
+  if (!ts) return '';
+  try {
+    return new Date(ts).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
+  } catch { return '' }
+}
+
+function extractPdfHtml(text) {
+  const m = (text || '').match(/\[PDF_CONTENT\]([\s\S]*?)\[\/PDF_CONTENT\]/i);
+  return m ? m[1].trim() : null;
+}
+
+async function downloadPdfFromHtml(html, filename='relatorio-crm.pdf') {
+  const container = document.createElement('div');
+  container.style.position = 'fixed';
+  container.style.left = '-9999px';
+  container.style.top = '0';
+  container.style.width = '800px';
+  container.innerHTML = html;
+  document.body.appendChild(container);
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  await doc.html(container, {
+    html2canvas: { scale: 0.8 },
+    autoPaging: 'text',
+    margin: [36, 36, 36, 36],
+    callback: (d) => {
+      d.save(filename);
+      container.remove();
+    }
+  });
+}
+
+window.__downloadPdf = async function(pdfHtml, fallbackText) {
+  try {
+    if (pdfHtml && pdfHtml.trim()) return await downloadPdfFromHtml(pdfHtml);
+    const html = `<div style="font-family:Arial, sans-serif; font-size: 12pt; color:#111">
+      <h1 style="font-size:16pt">Relatório CRM</h1>
+      <pre style="white-space:pre-wrap">${escapeHtml(fallbackText || '')}</pre>
+    </div>`;
+    await downloadPdfFromHtml(html);
+  } catch (e) {
+    alert('Falha ao gerar PDF: ' + (e.message || e));
+  }
+}
+
+function addMessage(role, text, ts, fetchData) {
+  const msgs = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  const avatar = role === 'user' ? '🧑' : '🤖';
+
+  const pdfHtml = role === 'assistant' ? extractPdfHtml(text) : null;
+  const showPdfBtn = role === 'assistant' && (pdfHtml || (fetchData && fetchData.wantsPdf === true));
+  const cleanText = pdfHtml ? (text || '').replace(/\[PDF_CONTENT\][\s\S]*?\[\/PDF_CONTENT\]/ig, '').trim() : (text || '');
+
+  div.innerHTML = `
+    <div class="avatar">${avatar}</div>
+    <div>
+      <div class="bubble">
+        ${escapeHtml(cleanText).replace(/\n/g, '<br>')}
+        ${showPdfBtn ? `<div style="margin-top:10px">
+          <button class="btn btn-outline btn-sm" onclick='window.__downloadPdf(${JSON.stringify(pdfHtml || '')}, ${JSON.stringify(cleanText || '')})'>📥 PDF</button>
+        </div>` : ''}
+      </div>
+      <div class="timestamp">${ts ? fmtTs(ts) : ''}${fetchData ? ` • fetches: ${fetchData.consultas}` : ''}</div>
+    </div>
+  `;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function addTyping() {
+  const msgs = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'msg assistant';
+  div.id = 'typing';
+  div.innerHTML = `
+    <div class="avatar">🤖</div>
+    <div class="bubble"><div class="typing"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>
+  `;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function removeTyping() {
+  const t = document.getElementById('typing');
+  if (t) t.remove();
+}
+
+async function loadHistory() {
+  const r = await fetch('/api/history');
+  const data = await r.json();
+  const msgs = document.getElementById('messages');
+  msgs.innerHTML = '';
+  if (!data || data.length === 0) {
+    addMessage('assistant', 'Me diga o que você quer analisar (pipeline, tarefas, ranking, carteira, etc.).');
+    return;
+  }
+  for (const m of data) addMessage(m.role, m.content, m.created_at);
+}
+
+async function clearHistory() {
+  if (!confirm('Excluir esta conversa?')) return;
+  if (currentSessionId) {
+    await fetch('/api/chat-sessions/' + currentSessionId, { method: 'DELETE' });
+  }
+  await newChatSession();
+  await loadChatSessions();
+}
+
+async function refreshScore() {
+  try {
+    const url = selectedUserId && me && (me.role === 'admin' || me.role === 'gestor')
+      ? `/api/dashboard?userId=${selectedUserId}`
+      : '/api/dashboard';
+    const r = await fetch(url);
+    const d = await r.json();
+    document.getElementById('scorecrm').textContent = `Score CRM: ${d.scorecrm ?? '—'}`;
+  } catch {}
+}
+
+async function loadVendors() {
+  // Só carrega para admin, gestor e supervisor (backend também valida)
+  if (!me || !['admin','gestor','supervisor'].includes(me.role)) return;
+  const r = await fetch('/api/ploomes-users');
+  if (!r.ok) return;
+  const users = await r.json();
+  const sel = document.getElementById('vendorSelect');
+  window._ploomesUserMap = {};
+  users.forEach(u => { window._ploomesUserMap[u.id] = u.name; });
+  sel.innerHTML = `<option value="">(visão geral)</option>` +
+    users.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+  sel.addEventListener('change', async () => {
+    selectedUserId = sel.value ? Number(sel.value) : null;
+    const name = selectedUserId ? (window._ploomesUserMap[selectedUserId] || '') : '';
+    document.getElementById('input').placeholder = selectedUserId
+      ? `Coach: analisando ${name}... Pergunte sobre ele(a)`
+      : 'Pergunte algo... (Enter envia, Shift+Enter quebra linha)';
+    await refreshScore();
+  });
+}
+
+async function send(message) {
+  if (!message?.trim() || isLoading) return;
+  isLoading = true;
+  document.getElementById('sendBtn').disabled = true;
+
+  const isTargeting = selectedUserId && me && ['admin','gestor','supervisor'].includes(me.role);
+  const targetName = isTargeting && window._ploomesUserMap ? (window._ploomesUserMap[selectedUserId] || '') : '';
+  const displayMsg = isTargeting && targetName ? `[Coach: ${targetName}] ${message}` : message;
+
+  document.getElementById('input').value = '';
+  addMessage('user', displayMsg);
+  addTyping();
+
+  const body = { message, chat_session_id: currentSessionId };
+  if (isTargeting && selectedUserId) {
+    body.target_ploomes_id = selectedUserId;
+    body.target_name = targetName;
+  }
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    removeTyping();
+    if (data.error) addMessage('assistant', '❌ Erro: ' + data.error);
+    else {
+      const fd = data.fetchData || null;
+      if (fd && typeof data.wantsPdf === 'boolean') fd.wantsPdf = data.wantsPdf;
+      addMessage('assistant', data.response, null, fd);
+    }
+  } catch (e) {
+    removeTyping();
+    addMessage('assistant', '❌ Erro de conexão. Tente novamente.');
+  }
+
+  isLoading = false;
+  document.getElementById('sendBtn').disabled = false;
+  document.getElementById('input').focus();
+  refreshScore();
+}
+
+function quickSend(text) {
+  const input = document.getElementById('input');
+  input.value = text;
+  sendFromInput();
+}
+
+function sendFromInput() {
+  const val = document.getElementById('input').value.trim();
+  if (val) send(val);
+}
+
+document.getElementById('input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendFromInput();
+  }
+});
+
+document.getElementById('input').addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+});
+
+async function initMe() {
+  const r = await fetch('/api/me');
+  me = await r.json();
+  document.getElementById('user').textContent = `${me.displayName} • ${me.role}`;
+  try {
+    document.getElementById('user-name').textContent = me.displayName || '—';
+    document.getElementById('user-role').textContent = me.role || '—';
+  } catch {}
+
+  const btnNew = document.getElementById('btnNewChat');
+  if (btnNew) btnNew.addEventListener('click', newChatSession);
+
+  if (me.role === 'admin' || me.role === 'gestor') {
+    document.getElementById('adminLink').style.display = 'flex';
+    document.getElementById('vendorBar').style.display = 'flex';
+    await loadVendors();
+  }
+  await refreshScore();
+
+  // Sessões de chat
+  const sessResp = await fetch('/api/chat-sessions');
+  const sessions = sessResp.ok ? await sessResp.json() : [];
+  if (sessions.length > 0) {
+    await openChatSession(sessions[0].id, sessions[0].title);
+  } else {
+    await newChatSession();
+  }
+  await loadChatSessions();
+
+  // Não dispara análise automática — usuário inicia a conversa
+}
+
+initMe();
+</script>
+</body>
+</html>

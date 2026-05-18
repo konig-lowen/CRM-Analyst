@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Coach AI — VetorV</title>
+<style>
+  :root {
+    --bg: #F8F9FA;
+    --surface: #FFFFFF;
+    --border: #E5E7EB;
+    --text: #111827;
+    --muted: #6B7280;
+    --accent: #4F46E5;
+    --accent-light: #EEF2FF;
+    --danger: #DC2626;
+    --sidebar-w: 220px;
+    --radius: 10px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .sidebar {
+    width: var(--sidebar-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    box-shadow: 2px 0 8px rgba(0,0,0,0.04);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 10;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 18px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand-icon { font-size: 22px; }
+  .brand-name { font-weight: 700; font-size: 15px; color: var(--text); }
+  .brand-sub { font-size: 11px; color: var(--muted); }
+
+  .nav { flex: 1; padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; }
+  .nav-link {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 10px; border-radius: 8px;
+    color: var(--muted); text-decoration: none;
+    font-size: 14px; font-weight: 500;
+  }
+  .nav-link:hover { background: var(--accent-light); color: var(--accent); }
+  .nav-link.active { background: var(--accent-light); color: var(--accent); font-weight: 650; }
+  .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+
+  .sidebar-footer {
+    border-top: 1px solid var(--border);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .user-info { display: flex; flex-direction: column; gap: 2px; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .btn-outline {
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: 8px;
+    padding: 8px 10px;
+    cursor: pointer;
+    color: var(--text);
+  }
+
+  .main {
+    margin-left: var(--sidebar-w);
+    height: 100vh;
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 12px;
+    padding: 14px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+
+  .chat-wrap { display: grid; grid-template-rows: auto auto 1fr auto; min-width: 0; }
+  header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  h1 { font-size: 16px; }
+  .badge { font-size: 12px; color: var(--muted); }
+
+  .vendor-bar {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: #fff;
+  }
+  .vendor-bar select {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    outline: none;
+    min-width: 220px;
+  }
+
+  .messages {
+    padding: 14px 14px 10px;
+    overflow-y: auto;
+  }
+  .row { display: flex; margin: 10px 0; }
+  .row.user { justify-content: flex-end; }
+  .bubble {
+    max-width: 78%;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .row.user .bubble { background: var(--accent-light); border-color: #DDE1FF; }
+  .row.assistant .bubble { background: #fff; }
+
+  .composer {
+    border-top: 1px solid var(--border);
+    padding: 10px;
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+    background: #fff;
+  }
+  textarea {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 10px;
+    resize: none;
+    min-height: 42px;
+    max-height: 140px;
+    outline: none;
+  }
+  .btn {
+    background: var(--accent);
+    color: #fff;
+    border: 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    min-width: 92px;
+  }
+  .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .side { display: grid; grid-template-rows: auto auto 1fr; }
+  .side h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .side-section { padding: 12px 12px; border-bottom: 1px solid var(--border); }
+  .focus-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .chip {
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: 999px;
+    padding: 8px 10px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text);
+  }
+  .chip.active { background: var(--accent-light); border-color: #DDE1FF; color: var(--accent); font-weight: 600; }
+
+  .quick { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+  .quick button {
+    text-align: left;
+    width: 100%;
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: 10px;
+    padding: 10px;
+    cursor: pointer;
+  }
+  .quick button:hover { background: var(--accent-light); border-color: #DDE1FF; }
+
+  .summaries { padding: 12px; overflow-y: auto; }
+  .summary-item {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px;
+    background: #fff;
+    margin-bottom: 10px;
+  }
+  .summary-meta { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+
+  @media (max-width: 980px) {
+    .main { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">📊</div>
+      <div>
+        <div class="brand-name">CRM Analyst</div>
+        <div class="brand-sub">VetorV</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <a href="/" class="nav-link"><span class="nav-icon">💬</span> Chat</a>
+      <a href="/coach" class="nav-link active"><span class="nav-icon">🎯</span> Coach AI</a>
+      <a href="/dashboard" class="nav-link"><span class="nav-icon">📈</span> Dashboard</a>
+      <a href="/ranking" class="nav-link"><span class="nav-icon">🏆</span> Ranking</a>
+      <a href="/reports" class="nav-link"><span class="nav-icon">📄</span> Relatórios</a>
+      <a id="adminLink" href="/admin" class="nav-link" style="display:none"><span class="nav-icon">⚙️</span> Usuários</a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div id="user-name">—</div>
+        <div id="user-role" class="muted">—</div>
+      </div>
+      <a href="/logout" class="btn-outline" style="text-decoration:none; text-align:center;">Sair</a>
+    </div>
+  </aside>
+
+  <div class="main">
+    <section class="card chat-wrap">
+      <header>
+        <div>
+          <h1>Coach AI</h1>
+          <div class="badge" id="meBadge">—</div>
+        </div>
+        <div class="badge" id="focusLabel">Foco: (não definido)</div>
+      </header>
+
+      <div class="vendor-bar" id="vendorBar">
+        <label for="vendorSelect">👁️ Coachando:</label>
+        <select id="vendorSelect"></select>
+      </div>
+
+      <div class="messages" id="messages"></div>
+
+      <div class="composer">
+        <textarea id="input" placeholder="Descreva a situação… (Enter envia, Shift+Enter quebra linha)"></textarea>
+        <button id="sendBtn" class="btn">Enviar</button>
+      </div>
+    </section>
+
+    <aside class="card side">
+      <div class="side-section">
+        <h2>Foco desta sessão</h2>
+        <div class="focus-grid" id="focusGrid">
+          <button class="chip" data-focus="prospeccao">Prospecção</button>
+          <button class="chip" data-focus="followup">Follow-up</button>
+          <button class="chip" data-focus="fechamento">Fechamento</button>
+          <button class="chip" data-focus="negociacao">Negociação</button>
+        </div>
+      </div>
+
+      <div class="side-section">
+        <h2>Sugestões rápidas</h2>
+        <div class="quick">
+          <button onclick="quickSend('📊 Analise meu perfil comportamental de vendas')">📊 Analise meu perfil comportamental de vendas</button>
+          <button onclick="quickSend('🎯 Qual é meu maior gargalo no funil?')">🎯 Qual é meu maior gargalo no funil?</button>
+          <button onclick="quickSend('💡 Como posso melhorar minha taxa de conversão?')">💡 Como posso melhorar minha taxa de conversão?</button>
+          <button onclick="quickSend('📅 Planeje minha semana de vendas ideal')">📅 Planeje minha semana de vendas ideal</button>
+          <button onclick="quickSend('🔁 Revisar meus deals em risco')">🔁 Revisar meus deals em risco</button>
+        </div>
+      </div>
+
+      <div class="summaries" id="summaries">
+        <h2 style="margin-bottom:10px;">Histórico (summaries)</h2>
+        <div id="summaryList" class="muted">Carregando…</div>
+      </div>
+    </aside>
+  </div>
+
+<script>
+  let me = null;
+  let isLoading = false;
+  let selectedUserId = null; // ploomes user id (admin targeting)
+  let currentFocus = null;
+
+  function setFocus(focusKey) {
+    currentFocus = focusKey;
+    document.getElementById('focusLabel').textContent = `Foco: ${focusKey || '(não definido)'}`;
+    document.querySelectorAll('.chip').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.focus === focusKey);
+    });
+  }
+
+  document.getElementById('focusGrid').addEventListener('click', (e) => {
+    const btn = e.target.closest('.chip');
+    if (!btn) return;
+    setFocus(btn.dataset.focus);
+  });
+
+  function addMessage(role, content) {
+    const wrap = document.getElementById('messages');
+    const row = document.createElement('div');
+    row.className = 'row ' + (role === 'user' ? 'user' : 'assistant');
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = content;
+    row.appendChild(bubble);
+    wrap.appendChild(row);
+    wrap.scrollTop = wrap.scrollHeight;
+  }
+
+  async function loadSummaries() {
+    const el = document.getElementById('summaryList');
+    el.textContent = 'Carregando…';
+    try {
+      const r = await fetch('/api/coaching-summaries');
+      if (!r.ok) { el.textContent = 'Sem permissão ou erro ao carregar.'; return; }
+      const rows = await r.json();
+      if (!rows || rows.length === 0) { el.textContent = 'Nenhum summary ainda.'; return; }
+      el.innerHTML = '';
+      for (const row of rows) {
+        const div = document.createElement('div');
+        div.className = 'summary-item';
+        const meta = document.createElement('div');
+        meta.className = 'summary-meta';
+        meta.textContent = new Date(row.created_at + 'Z').toLocaleString();
+        const txt = document.createElement('div');
+        txt.textContent = row.summary;
+        div.appendChild(meta);
+        div.appendChild(txt);
+        el.appendChild(div);
+      }
+    } catch {
+      el.textContent = 'Erro ao carregar.';
+    }
+  }
+
+  async function loadVendors() {
+    if (!me || !['admin','gestor','supervisor'].includes(me.role)) return;
+    const r = await fetch('/api/ploomes-users');
+    if (!r.ok) return;
+    const users = await r.json();
+    const sel = document.getElementById('vendorSelect');
+    window._ploomesUserMap = {};
+    users.forEach(u => { window._ploomesUserMap[u.id] = u.name; });
+    sel.innerHTML = `<option value="">(eu mesmo / visão geral)</option>` + users.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+    sel.addEventListener('change', () => {
+      selectedUserId = sel.value ? Number(sel.value) : null;
+      const name = selectedUserId ? (window._ploomesUserMap[selectedUserId] || '') : '';
+      document.getElementById('input').placeholder = selectedUserId
+        ? `Coachando ${name}… (Enter envia, Shift+Enter quebra linha)`
+        : 'Descreva a situação… (Enter envia, Shift+Enter quebra linha)';
+    });
+  }
+
+  async function send() {
+    const input = document.getElementById('input');
+    const message = (input.value || '').trim();
+    if (!message || isLoading) return;
+
+    isLoading = true;
+    document.getElementById('sendBtn').disabled = true;
+
+    input.value = '';
+    input.style.height = 'auto';
+
+    const isTargeting = selectedUserId && me && ['admin','gestor','supervisor'].includes(me.role);
+    const targetName = isTargeting && window._ploomesUserMap ? (window._ploomesUserMap[selectedUserId] || '') : '';
+
+    addMessage('user', (currentFocus ? `[Foco: ${currentFocus}] ` : '') + (isTargeting && targetName ? `[${targetName}] ` : '') + message);
+
+    const body = { message: (currentFocus ? `Foco da sessão: ${currentFocus}.\n\n` : '') + message };
+    if (isTargeting && selectedUserId) {
+      body.target_ploomes_id = selectedUserId;
+      body.target_name = targetName;
+    }
+
+    try {
+      const res = await fetch('/api/chat/coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (data.error) addMessage('assistant', '❌ Erro: ' + data.error);
+      else addMessage('assistant', data.response || '(sem resposta)');
+    } catch {
+      addMessage('assistant', '❌ Erro de conexão.');
+    }
+
+    isLoading = false;
+    document.getElementById('sendBtn').disabled = false;
+    input.focus();
+    loadSummaries();
+  }
+
+  function quickSend(text) {
+    document.getElementById('input').value = text;
+    send();
+  }
+
+  document.getElementById('sendBtn').addEventListener('click', send);
+  document.getElementById('input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  });
+  document.getElementById('input').addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 140) + 'px';
+  });
+
+  (async function init() {
+    const r = await fetch('/api/me');
+    me = await r.json();
+    document.getElementById('meBadge').textContent = `${me.displayName} • ${me.role}`;
+    document.getElementById('user-name').textContent = me.displayName || '—';
+    document.getElementById('user-role').textContent = me.role || '—';
+    if (me.role === 'admin' || me.role === 'gestor') {
+      document.getElementById('adminLink').style.display = 'flex';
+      document.getElementById('vendorBar').style.display = 'flex';
+      await loadVendors();
+    }
+
+    addMessage('assistant', 'Vamos trabalhar seu desenvolvimento. Qual foi o último deal que travou (etapa, perfil do cliente, e qual foi a objeção principal)?');
+    setFocus(null);
+    loadSummaries();
+  })();
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "ploomes-analyst",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.1",
+    "better-sqlite3": "^12.8.0",
+    "better-sqlite3-session-store": "^0.1.0",
+    "express": "^5.2.1",
+    "express-session": "^1.19.0",
+    "node-fetch": "^3.3.2"
+  }
+}

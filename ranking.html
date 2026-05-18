@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ranking — CRM Analyst</title>
+<style>
+  :root {
+    --bg: #F8F9FA;
+    --surface: #FFFFFF;
+    --border: #E5E7EB;
+    --text: #111827;
+    --muted: #6B7280;
+    --accent: #4F46E5;
+    --accent-hover: #4338CA;
+    --accent-light: #EEF2FF;
+    --success: #059669;
+    --success-light: #ECFDF5;
+    --warning: #D97706;
+    --warning-light: #FFFBEB;
+    --danger: #DC2626;
+    --danger-light: #FEF2F2;
+    --sidebar-w: 220px;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.04);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .sidebar {
+    width: var(--sidebar-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    box-shadow: 2px 0 8px rgba(0,0,0,0.04);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    position: fixed;
+    left: 0; top: 0;
+    z-index: 10;
+    padding: 0;
+  }
+  .brand { display:flex; align-items:center; gap:10px; padding: 18px 16px; border-bottom: 1px solid var(--border); }
+  .brand-icon { font-size: 22px; }
+  .brand-name { font-weight: 700; font-size: 15px; color: var(--text); }
+  .brand-sub { font-size: 11px; color: var(--muted); }
+  .nav { flex:1; padding: 12px 8px; display:flex; flex-direction:column; gap: 2px; }
+  .nav-link { display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius: 8px; color: var(--muted); text-decoration:none; font-size:14px; font-weight:500; transition: all .15s; }
+  .nav-link:hover { background: var(--accent-light); color: var(--accent); }
+  .nav-link.active { background: var(--accent-light); color: var(--accent); font-weight: 600; }
+  .nav-icon { font-size: 16px; width: 20px; text-align:center; }
+  .sidebar-footer { padding: 12px 16px; border-top: 1px solid var(--border); display:flex; flex-direction:column; gap:8px; }
+  #user-name { font-size: 13px; font-weight: 600; color: var(--text); }
+  #user-role { font-size: 11px; color: var(--muted); }
+
+  .btn-outline {
+    background: var(--surface);
+    border: 1px solid #D1D5DB;
+    color: #374151;
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all .15s;
+    text-decoration:none;
+    text-align:center;
+  }
+  .btn-outline:hover { background: #F9FAFB; }
+  .btn-sm { padding: 7px 10px; font-size: 12px; border-radius: 8px; }
+
+  .main { margin-left: var(--sidebar-w); min-height: 100vh; display:flex; flex-direction:column; }
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap: 12px;
+  }
+  .header-left { display:flex; gap:10px; align-items:center; flex-wrap: wrap; }
+  .header-left h1 { font-size: 16px; font-weight: 700; }
+  .badge {
+    display:inline-flex;
+    align-items:center;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: #F9FAFB;
+    font-size: 12px;
+    color: #374151;
+    font-weight: 600;
+  }
+  .filter { display:flex; gap:10px; align-items:center; font-size:12px; color: var(--muted); }
+  select {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid #D1D5DB;
+    border-radius: 10px;
+    padding: 8px 10px;
+    outline:none;
+  }
+
+  .container { padding: 22px 20px; max-width: 1100px; width: 100%; }
+
+  .top3 { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+  .podium {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    box-shadow: var(--shadow);
+  }
+  .podium .m { font-size: 18px; font-weight: 700; }
+  .podium .n { font-weight: 800; margin-top: 8px; font-size: 14px; }
+  .podium .p { color: var(--muted); margin-top: 6px; font-size: 13px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  th, td { padding: 12px 12px; border-bottom: 1px solid var(--border); font-size: 13px; text-align: left; }
+  th {
+    color: #374151;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    background: #F9FAFB;
+  }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: #FAFAFB; }
+
+  .me-row td { background: rgba(79,70,229,0.08); }
+
+  .float {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px;
+    width: 320px;
+    display: none;
+    box-shadow: var(--shadow-md);
+    z-index: 50;
+  }
+  .float label { font-size: 12px; color: var(--muted); display:block; margin-bottom: 6px; }
+  .float select { width: 100%; }
+
+  @media (max-width: 980px) { .top3 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">📊</div>
+      <div>
+        <div class="brand-name">CRM Analyst</div>
+        <div class="brand-sub">VetorV</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <a href="/" class="nav-link"><span class="nav-icon">💬</span> Chat</a>
+      <a href="/coach" class="nav-link"><span class="nav-icon">🎯</span> Coach AI</a>
+      <a href="/dashboard" class="nav-link"><span class="nav-icon">📈</span> Dashboard</a>
+      <a href="/ranking" class="nav-link active"><span class="nav-icon">🏆</span> Ranking</a>
+      <a href="/reports" class="nav-link"><span class="nav-icon">📄</span> Relatórios</a>
+      <a id="adminLink" href="/admin" class="nav-link" style="display:none"><span class="nav-icon">⚙️</span> Usuários</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div id="user-name">—</div>
+        <div id="user-role" class="muted">—</div>
+      </div>
+      <a href="/logout" class="btn-outline btn-sm">Sair</a>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header>
+      <div class="header-left">
+        <h1>Ranking</h1>
+        <span class="badge" id="scope">—</span>
+      </div>
+      <div class="filter" style="display:flex;align-items:center;gap:10px">
+        <span>Período:</span>
+        <select id="period">
+          <option value="month">Mês atual</option>
+          <option value="quarter">Trimestre (placeholder)</option>
+          <option value="year">Ano (placeholder)</option>
+        </select>
+        <button id="btnRefresh" onclick="forceRefresh()" style="display:none;padding:4px 10px;border-radius:6px;border:1px solid #d1d5db;background:#fff;cursor:pointer;font-size:12px">🔄 Atualizar</button>
+      </div>
+    </header>
+
+    <div class="container">
+      <div class="top3" id="top3"></div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Nome</th>
+            <th>Pontos</th>
+            <th>Breakdown</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr><td colspan="4">Carregando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="float" id="vendorFloat">
+    <label for="vendorSelect">Analisar vendedor:</label>
+    <select id="vendorSelect"></select>
+  </div>
+
+<script>
+let me = null;
+let selectedUserId = null;
+
+// ─── sessionStorage cache helpers ────────────────────────────
+const CACHE_TTL = 4 * 60 * 60 * 1000;
+function _cacheRead(key) {
+  try {
+    const raw = sessionStorage.getItem('cache_' + key);
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    if (Date.now() - ts > CACHE_TTL) { sessionStorage.removeItem('cache_' + key); return null; }
+    return data;
+  } catch { return null; }
+}
+function _cacheWrite(key, data) {
+  try { sessionStorage.setItem('cache_' + key, JSON.stringify({ data, ts: Date.now() })); } catch {}
+}
+async function cachedFetch(key, fetchFn) {
+  const hit = _cacheRead(key);
+  if (hit !== null) return hit;
+  const data = await fetchFn();
+  _cacheWrite(key, data);
+  return data;
+}
+function forceRefresh() {
+  Object.keys(sessionStorage).forEach(k => { if (k.startsWith('cache_ranking_')) sessionStorage.removeItem(k); });
+  loadRanking();
+}
+
+async function loadVendors(){
+  const r = await fetch('/api/admin/users');
+  const users = await r.json();
+  const sel = document.getElementById('vendorSelect');
+  const opts = users.filter(u => u.active).map(u => ({ id: u.id, name: (u.display_name || u.username) + ` (${u.role})` }));
+  sel.innerHTML = `<option value="">(meu escopo)</option>` + opts.map(o => `<option value="${o.id}">${o.name}</option>`).join('');
+  sel.addEventListener('change', () => { selectedUserId = sel.value ? Number(sel.value) : null; loadRanking(); });
+}
+
+function medal(i){ return i===1?'🥇':i===2?'🥈':i===3?'🥉':''; }
+
+function breakdownText(b){
+  if(!b) return '—';
+  const parts = [
+    `+10x ganhos: ${b.dealsGanhos||0}`,
+    `+1x interações: ${b.interacoes||0}`,
+    `+2x visitas/reuniões: ${b.visitasReunioes||0}`,
+    `+3x tarefas no prazo: ${b.tarefasNoPrazo||0}`,
+    `-2x tarefas vencidas: ${b.tarefasVencidas||0}`,
+    `-1x deals sem update>30d: ${b.dealsSemAtualizacao30d||0}`,
+    `+2/semana coach: ${b.semanasCoach||0}`,
+  ];
+  return parts.join(' • ');
+}
+
+async function loadRanking(){
+  const rKey = `ranking_${selectedUserId||''}`;
+  const data = await cachedFetch(rKey, async () => {
+    const r = await fetch('/api/ranking');
+    return r.json();
+  });
+
+  document.getElementById('scope').textContent = `${me.displayName} • ${me.role}`;
+
+  const lb = data.leaderboard || [];
+  const top = lb.slice(0,3);
+  document.getElementById('top3').innerHTML = top.map((u, idx) => `
+    <div class="podium">
+      <div class="m">${medal(idx+1)} Top ${idx+1}</div>
+      <div class="n">${u.nome}</div>
+      <div class="p"><strong>${u.pontuacao}</strong> pontos</div>
+      <div class="p" style="opacity:.9">${breakdownText(u.breakdown)}</div>
+    </div>
+  `).join('') || '<div class="podium">Sem dados</div>';
+
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = lb.map(u => {
+    const isMe = me && (u.nome === me.displayName);
+    return `
+    <tr class="${isMe ? 'me-row' : ''}">
+      <td>${u.posicao}</td>
+      <td>${u.nome}</td>
+      <td><strong>${u.pontuacao}</strong></td>
+      <td style="opacity:.9">${breakdownText(u.breakdown)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="4">Sem dados</td></tr>';
+}
+
+async function init(){
+  const r = await fetch('/api/me');
+  me = await r.json();
+  try {
+    document.getElementById('user-name').textContent = me.displayName || '—';
+    document.getElementById('user-role').textContent = me.role || '—';
+  } catch {}
+  if (['admin','gestor'].includes(me.role)) {
+    document.getElementById('btnRefresh').style.display = 'inline-block';
+  }
+  if (me.role === 'admin' || me.role === 'gestor') {
+    document.getElementById('adminLink').style.display = 'flex';
+    document.getElementById('vendorFloat').style.display = 'block';
+    await loadVendors();
+  }
+  await loadRanking();
+}
+
+init();
+</script>
+</body>
+</html>

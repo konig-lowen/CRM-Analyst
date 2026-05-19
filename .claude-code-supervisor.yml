@@ -1,0 +1,10 @@
+triage:
+  command: "claude -p --no-session-persistence"
+  model: "claude-haiku-4-5"
+
+notify:
+  command: "openclaw gateway call wake --params"
+
+watchdog:
+  check_interval_sec: 900
+  state_file: "/root/.openclaw/workspace/supervisor-state.json"

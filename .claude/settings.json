@@ -1,0 +1,8 @@
+{
+  "model": "claude-sonnet-4-5",
+  "hooks": {
+    "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "bash .claude/hooks/supervisor/on-stop.sh"}]}],
+    "PostToolUseFailure": [{"matcher": "", "hooks": [{"type": "command", "command": "bash .claude/hooks/supervisor/on-error.sh"}]}],
+    "Notification": [{"matcher": "", "hooks": [{"type": "command", "command": "bash .claude/hooks/supervisor/on-notify.sh"}]}]
+  }
+}

@@ -1,28 +1,27 @@
-# Auditoria CRM Analyst — Progress Tracker
-**Iniciado:** 2026-05-20
-**Meta:** Concluir antes das 09:00 BRT
+# Auditoria CRM Analyst — Progresso
 
-## Status Geral
-- [ ] FASE 1 — Leitura do codebase
-- [ ] FASE 2 — Auditoria Backend (server.js)
-- [ ] FASE 3 — Auditoria Banco de Dados
-- [ ] FASE 4 — Auditoria Frontend (HTMLs)
-- [ ] FASE 5 — Auditoria CRM API Integration
-- [ ] FASE 6 — Auditoria Coach AI & Prompts
-- [ ] FASE 7 — Auditoria Dashboards, KPIs, Gamificação
-- [ ] FASE 8 — Evolução Estratégica
-- [ ] FASE 9 — Consolidação do relatório final
+**Iniciado:** 2026-05-20 15:02 UTC  
+**Prazo:** 2026-05-20 manhã (GMT-3) ≈ 12:00 UTC  
+**Executor:** Jarvis → Claude Code
 
-## Arquivos de saída
-- `/opt/ploomes-analyst/AUDIT_F1_codebase.md`
-- `/opt/ploomes-analyst/AUDIT_F2_backend.md`
-- `/opt/ploomes-analyst/AUDIT_F3_database.md`
-- `/opt/ploomes-analyst/AUDIT_F4_frontend.md`
-- `/opt/ploomes-analyst/AUDIT_F5_api_integration.md`
-- `/opt/ploomes-analyst/AUDIT_F6_coach_ai.md`
-- `/opt/ploomes-analyst/AUDIT_F7_dashboards.md`
-- `/opt/ploomes-analyst/AUDIT_F8_estrategia.md`
-- `/opt/ploomes-analyst/AUDIT_FINAL.md`
+---
 
-## Log de erros / retomadas
-(preenchido automaticamente pelo agente)
+## Fases
+
+| # | Fase | Status | Arquivo de saída |
+|---|------|--------|-----------------|
+| 0 | Setup & Exploração da estrutura | ⏳ Pendente | AUDIT_PHASE0_STRUCTURE.md |
+| 1 | Backend (server.js, arquitetura, cache, sync) | ⏳ Pendente | AUDIT_PHASE1_BACKEND.md |
+| 2 | Banco de dados (schema, índices, queries) | ⏳ Pendente | AUDIT_PHASE2_DATABASE.md |
+| 3 | Integração API CRM (Ploomes) | ⏳ Pendente | AUDIT_PHASE3_API.md |
+| 4 | Frontend (app.html, dashboard.html, coach.html) | ⏳ Pendente | AUDIT_PHASE4_FRONTEND.md |
+| 5 | Coach AI (prompts, contexto, alucinação) | ⏳ Pendente | AUDIT_PHASE5_COACH.md |
+| 6 | Dashboards e Relatórios | ⏳ Pendente | AUDIT_PHASE6_DASHBOARDS.md |
+| 7 | Gamificação | ⏳ Pendente | AUDIT_PHASE7_GAMIFICATION.md |
+| 8 | Evolução Estratégica (Engine de Insights, Memória, Chat) | ⏳ Pendente | AUDIT_PHASE8_EVOLUTION.md |
+| 9 | Compilação do relatório final | ⏳ Pendente | AUDIT_FINAL_REPORT.md |
+
+---
+
+## Log de execução
+

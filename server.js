@@ -607,7 +607,11 @@ function cacheGet(key, ttlMs = 60 * 1000) {
   }
   return hit.v;
 }
+const PLOOMES_CACHE_MAX = 500;
 function cacheSet(key, value) {
+  if (_ploomesCache.size >= PLOOMES_CACHE_MAX) {
+    _ploomesCache.delete(_ploomesCache.keys().next().value);
+  }
   _ploomesCache.set(key, { t: Date.now(), v: value });
 }
 
@@ -1526,10 +1530,9 @@ async function computeDataQualityDiagnostic() {
 }
 
 // ─── CRM Health Cache (1h) ────────────────────────────────────────────────
-let crmHealthCache = null;
-let crmHealthCacheAt = 0;
+const crmHealthCacheMap = new Map(); // key: JSON.stringify(sortedIds) -> { data, ts }
 
-async function computeCrmHealth() {
+async function computeCrmHealth(ids) {
   // Prefer warehouse when fresh; kick sync in background if stale.
   try {
     if (isWarehouseFresh()) {
@@ -1546,8 +1549,10 @@ async function computeCrmHealth() {
   const nowMs = now.getTime();
 
   // Return cached if fresh (4h)
-  if (crmHealthCache && nowMs - crmHealthCacheAt < 4 * 60 * 60 * 1000) {
-    return crmHealthCache;
+  const cacheKey = ids ? JSON.stringify([...ids].sort()) : '__all__';
+  const cached = crmHealthCacheMap.get(cacheKey);
+  if (cached && nowMs - cached.ts < 4 * 60 * 60 * 1000) {
+    return cached.data;
   }
 
   try {
@@ -1729,7 +1734,7 @@ async function computeCrmHealth() {
     const totalLostNoReason = lostDeals180ForStats.filter(d => !d.LossReasonId).length;
     const pctLostNoReason = lostDeals180ForStats.length > 0 ? +(totalLostNoReason / lostDeals180ForStats.length * 100).toFixed(1) : 0;
 
-    crmHealthCache = {
+    crmHealthCacheMap.set(cacheKey, { data: {
       timestamp: now.toISOString(),
       cachedAt: nowMs,
       summary: {
@@ -1740,9 +1745,8 @@ async function computeCrmHealth() {
         pctLostNoReason,
       },
       vendors: vendorResults,
-    };
-    crmHealthCacheAt = nowMs;
-    return crmHealthCache;
+    }, ts: nowMs });
+    return crmHealthCacheMap.get(cacheKey).data;
   } catch (e) {
     console.error('[crm-health]', e);
     return { error: e.message };
@@ -1807,9 +1811,13 @@ async function askClaudeMessages(messages, systemPrompt) {
   return askOpenAI(openaiMessages);
 }
 
+let dictionaryInFlight = null;
 async function loadDictionary() {
   const now = Date.now();
   if (dictionary && now - dictionaryLoadedAt < 30 * 60 * 1000) return dictionary;
+  if (dictionaryInFlight) return dictionaryInFlight;
+  dictionaryInFlight = (async () => {
+    try {
   console.log('[dict] Carregando dicionário...');
 
   const users        = await ploomesGetOnce('/Users?$select=Id,Name,Email,Suspended,Integration');
@@ -1845,6 +1853,11 @@ async function loadDictionary() {
   dictionaryLoadedAt = now;
   console.log('[dict] OK:', { users: dictionary.users.length, pipelines: dictionary.pipelines.length, stages: dictionary.stages.length, lossReasons: dictionary.lossReasons.length });
   return dictionary;
+    } finally {
+      dictionaryInFlight = null;
+    }
+  })();
+  return dictionaryInFlight;
 }
 
 // --- OpenAI (GPT-4o) ---

@@ -6,6 +6,15 @@ const path = require('path');
 const https = require('https');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const rateLimit = require('express-rate-limit');
+const chatRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  keyGenerator: (req) => String(req.session?.userId || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown'),
+  handler: (req, res) => res.status(429).json({ error: 'Muitas requisições. Aguarde 1 minuto.' }),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Anthropic (Claude)
 let Anthropic;
@@ -15,7 +24,8 @@ const app = express();
 const PORT = 3001;
 
 // IMPORTANT: Ploomes API is READ-ONLY. Never POST/PATCH/DELETE on Ploomes.
-const PLOOMES_API_KEY = process.env.PLOOMES_API_KEY || '78B2E7C7435890F250B3E867B0496F2B0C3270D67BBC3A03761A567A62468F5D8647146C209BF0879367FA0BFB6B9C4056D7D882524E106AD5561D8AB987F58B';
+const PLOOMES_API_KEY = process.env.PLOOMES_API_KEY;
+if (!PLOOMES_API_KEY) { console.error('[FATAL] PLOOMES_API_KEY não definida'); process.exit(1); }
 const PLOOMES_BASE = 'https://api2.ploomes.com';
 
 // Usuários excluídos de TODAS as análises de performance
@@ -445,6 +455,24 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_fetch_cache_expires ON fetch_cache(expires_at);
 `);
 
+// ─── Tabela anomaly_alerts ────────────────────────────────────────────
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS anomaly_alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_id TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    target_type TEXT,
+    target_id TEXT,
+    owner_ploomes_id INTEGER,
+    message TEXT NOT NULL,
+    data_json TEXT,
+    detected_at TEXT DEFAULT (datetime('now')),
+    resolved_at TEXT,
+    notified INTEGER DEFAULT 0
+  )
+`).run();
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_anomaly_owner ON anomaly_alerts(owner_ploomes_id, resolved_at)`).run();
+
 // migrate messages to add user_id (needed for /api/chat-history/:userId)
 const msgCols = db.prepare("PRAGMA table_info(messages)").all().map(c => c.name);
 if (!msgCols.includes('user_id')) {
@@ -548,7 +576,7 @@ async function resolvePloomesUserByEmail(email) {
 }
 
 
-function ploomesGetOnce(urlPath) {
+function _ploomesGetOnceSingle(urlPath) {
   // Server-side concurrency limiter to avoid: "Too many request concurrently, max is 6"
   // Keep a conservative cap here.
   const MAX = 4;
@@ -581,6 +609,12 @@ function ploomesGetOnce(urlPath) {
       timeout: 30000,
     };
     https.get(options, (res) => {
+      if (res.statusCode === 429) {
+        const retryAfter = res.headers['retry-after'];
+        reject(new Error(`429 rate-limit${retryAfter ? ` retry-after=${retryAfter}s` : ''}`));
+        res.resume();
+        return;
+      }
       let data = '';
       res.on('data', d => data += d);
       res.on('end', () => {
@@ -593,6 +627,24 @@ function ploomesGetOnce(urlPath) {
       });
     }).on('error', reject).on('timeout', () => reject(new Error('Timeout')));
   }));
+}
+
+async function ploomesGetOnce(urlPath) {
+  const maxRetries = 3;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await _ploomesGetOnceSingle(urlPath);
+    } catch (e) {
+      const isRetryable = e.message?.includes('429') || e.message?.includes('5') || e.message?.includes('timeout') || e.message?.includes('ECONNRESET');
+      if (attempt < maxRetries - 1 && isRetryable) {
+        const delay = Math.pow(2, attempt) * 1000;
+        console.warn(`[ploomes retry] tentativa ${attempt + 1} falhou, aguardando ${delay}ms:`, e.message);
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        throw e;
+      }
+    }
+  }
 }
 
 // --- Simple in-memory cache (60s) to reduce latency and rate-limit pressure ---
@@ -1012,10 +1064,7 @@ function computeSalesIndicatorsWarehouse(ploomesIds, periodDays) {
 
   // Prefer warehouse when fresh; kick sync in background if stale.
   try {
-    if (isWarehouseFresh()) {
-      const wh = computeSalesIndicatorsWarehouse(ploomesIds, periodDays);
-      if (wh && !wh.error) return wh;
-    } else {
+    if (!isWarehouseFresh()) {
       kickWarehouseSyncBackground('computeSalesIndicators');
     }
   } catch (e) {
@@ -1943,7 +1992,7 @@ const sessionStore = new SqliteStore({
 app.use(session({
   name: 'ploomes.sid',
   store: sessionStore,
-  secret: process.env.SESSION_SECRET || 'ploomes-analyst-2024-xK9p',
+  secret: process.env.SESSION_SECRET || require('crypto').randomBytes(64).toString('hex'),
   resave: false,
   saveUninitialized: false,
   rolling: true,
@@ -2120,13 +2169,30 @@ async function computeDashboard({ dict, allowedOwnerIds, allowedCreatorIds, targ
   `).get(targetAppUserId, startMonthIso);
   const coachBonus = (coachWeeks?.w || 0) * 2;
 
-  const scorecrm = (wonCount * 10) + (interCount * 1) + (visitMeetingCount * 2) + (onTimeFinished * 3) + (overdueThisMonth * -2) + stalePenalty + coachBonus;
-
   // Goals vs realized
   const year = now.getUTCFullYear();
   const month = now.getUTCMonth() + 1;
   const goal = db.prepare('SELECT * FROM goals WHERE user_id = ? AND year = ? AND month = ? ORDER BY updated_at DESC LIMIT 1').get(targetAppUserId, year, month);
   const ganhosValor = sumBy(dealsWon, d => d.Amount || 0);
+
+  // Score balanceado: receita tem peso maior que volume puro
+  const revenueScore = goal?.valor_mensal > 0
+    ? Math.round(Math.min(50, (ganhosValor / goal.valor_mensal) * 50))  // até 50pts por % de meta
+    : Math.round(Math.min(30, ganhosValor / 5000));                      // sem meta: 1pt a cada R$5k (max 30)
+
+  const activityScore = Math.round(
+    (wonCount * 8) +            // deals ganhos (peso alto)
+    (visitMeetingCount * 3) +   // visitas/reuniões (qualidade)
+    (interCount * 0.5) +        // interações gerais (volume, peso menor)
+    (onTimeFinished * 2)        // tarefas no prazo
+  );
+
+  const penaltyScore = Math.round(
+    (overdueThisMonth * -3) +   // tarefas vencidas (mais pesado)
+    stalePenalty                 // deals parados
+  );
+
+  const scorecrm = revenueScore + activityScore + penaltyScore + coachBonus;
   const metaVsRealizado = goal ? {
     goal,
     realizado: {
@@ -2187,16 +2253,18 @@ async function computeRanking({ dict, scopeOwnerIds, scopeCreatorIds, scopeAppUs
 
   for (const d of dealsWon) {
     const row = ensure(d.OwnerId);
-    row.pontuacao += 10;
+    row.pontuacao += 8;                                    // deal ganho (base)
+    row.pontuacao += Math.min(20, Math.round((d.Amount || 0) / 5000)); // até +20 pts por receita (R$5k = 1pt)
     row.breakdown.dealsGanhos += 1;
+    row.breakdown.receitaGanha = (row.breakdown.receitaGanha || 0) + (d.Amount || 0);
   }
 
   for (const i of interactions) {
     const row = ensure(i.CreatorId);
-    row.pontuacao += 1;
+    row.pontuacao += 0.5;
     row.breakdown.interacoes += 1;
     if (i.TypeId === 2 || i.TypeId === 5) {
-      row.pontuacao += 2;
+      row.pontuacao += 2;    // visitas/reuniões valem mais
       row.breakdown.visitasReunioes += 1;
     }
   }
@@ -2310,6 +2378,8 @@ app.get('/', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'index
 app.get('/coach', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'coach.html')));
 app.get('/dashboard', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'dashboard.html')));
 app.get('/ranking', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'ranking.html')));
+app.get('/gestor', requireAuth, requireAdminOrGestor, (req, res) =>
+  res.sendFile(path.join(__dirname, 'gestor.html')));
 app.get('/app', requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'app.html'));
 });
@@ -2530,6 +2600,226 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
 });
 
 // ─── Ranking ──────────────────────────────────────────────────
+// ─── GET /api/agenda-hoje ─────────────────────────────────────
+app.get('/api/agenda-hoje', requireAuth, async (req, res) => {
+  try {
+    const ploomesId = req.session.ploomesUserId;
+    const role = req.session.role;
+    const isGestor = role === 'admin' || role === 'gestor' || role === 'supervisor';
+
+    const dict = await loadDictionary();
+    const EXCL = EXCLUDED_FROM_ANALYSIS || [];
+    const ARCHIVED_PIPELINES = EXCLUDED_PIPELINE_IDS || [];
+
+    let scopeIds;
+    if (isGestor) {
+      scopeIds = Object.keys(dict.userById || {}).map(Number).filter(id => !EXCL.includes(id));
+    } else {
+      scopeIds = ploomesId ? [ploomesId] : [];
+    }
+    if (scopeIds.length === 0) return res.json([]);
+
+    const ownerFilter = scopeIds.map(id => `OwnerId eq ${id}`).join(' or ');
+    const now = new Date();
+    const cutoff21 = new Date(Date.now() - 21*24*60*60*1000);
+    const cutoff7  = new Date(Date.now() - 7*24*60*60*1000);
+
+    const [dealsOpen, tasksOpen, interactionsWeek] = await Promise.all([
+      ploomesGetAll(`/Deals?$select=Id,OwnerId,Title,Amount,LastUpdateDate,StatusId,PipelineId,StageId&$filter=StatusId%20eq%201%20and%20(${ownerFilter})`),
+      ploomesGetAll(`/Tasks?$select=Id,OwnerId,DateTime,Finished,Title,DealId&$filter=Finished%20eq%20false%20and%20(${ownerFilter})`),
+      ploomesGetAll(`/InteractionRecords?$select=Id,CreatorId,Date,DealId&$filter=Date%20ge%20${encodeURIComponent(isoNoZ(cutoff7))}%20and%20(${ownerFilter.replace(/OwnerId/g,'CreatorId')})`),
+    ]);
+
+    const activeDeals = dealsOpen.filter(d => !ARCHIVED_PIPELINES.includes(d.PipelineId));
+    const agenda = [];
+
+    const overdueTasks = tasksOpen.filter(t => t.DateTime && new Date(t.DateTime) <= now);
+    for (const t of overdueTasks.slice(0, 10)) {
+      const ownerName = dict.userById?.[t.OwnerId]?.Name || '';
+      agenda.push({
+        priority: 1, type: 'task_overdue', icon: '🔴', label: 'Tarefa vencida',
+        action: `${t.Title || 'Tarefa'} — venceu ${formatDateBR(t.DateTime)}${isGestor && ownerName ? ` (${ownerName})` : ''}`,
+        taskId: t.Id, dealId: t.DealId, ownerId: t.OwnerId,
+      });
+    }
+
+    const staleDealsSorted = activeDeals
+      .filter(d => d.LastUpdateDate && new Date(d.LastUpdateDate) < cutoff21)
+      .sort((a,b) => (b.Amount||0) - (a.Amount||0));
+    for (const d of staleDealsSorted.slice(0, 8)) {
+      const days = Math.floor((now - new Date(d.LastUpdateDate)) / 86400000);
+      const ownerName = dict.userById?.[d.OwnerId]?.Name || '';
+      agenda.push({
+        priority: 2, type: 'deal_stalled', icon: '🟡', label: 'Deal parado',
+        action: `"${d.Title || d.Id}" parado há ${days} dias${d.Amount ? ` — R$ ${Number(d.Amount).toLocaleString('pt-BR',{minimumFractionDigits:2})}` : ''}${isGestor && ownerName ? ` (${ownerName})` : ''}`,
+        dealId: d.Id, ownerId: d.OwnerId, amount: d.Amount, daysSinceUpdate: days,
+      });
+    }
+
+    const interByDeal = {};
+    for (const i of interactionsWeek) {
+      if (i.DealId) interByDeal[i.DealId] = (interByDeal[i.DealId] || 0) + 1;
+    }
+    const hotDeals = activeDeals
+      .filter(d => (interByDeal[d.Id] || 0) >= 3)
+      .sort((a,b) => (interByDeal[b.Id]||0) - (interByDeal[a.Id]||0));
+    for (const d of hotDeals.slice(0, 5)) {
+      const ownerName = dict.userById?.[d.OwnerId]?.Name || '';
+      agenda.push({
+        priority: 3, type: 'deal_hot', icon: '🔥', label: 'Deal aquecido',
+        action: `"${d.Title || d.Id}" teve ${interByDeal[d.Id]} interações essa semana — momento de avançar${isGestor && ownerName ? ` (${ownerName})` : ''}`,
+        dealId: d.Id, ownerId: d.OwnerId, amount: d.Amount,
+      });
+    }
+
+    const criticalAlerts = db.prepare(`
+      SELECT * FROM anomaly_alerts
+      WHERE severity = 'critical' AND resolved_at IS NULL
+        AND detected_at >= datetime('now', '-2 days')
+        ${isGestor ? '' : `AND owner_ploomes_id = ${ploomesId}`}
+      ORDER BY detected_at DESC LIMIT 5
+    `).all();
+    for (const a of criticalAlerts) {
+      agenda.push({
+        priority: 0, type: 'critical_alert', icon: '🚨', label: 'Alerta crítico',
+        action: a.message, alertId: a.id, ownerId: a.owner_ploomes_id,
+      });
+    }
+
+    agenda.sort((a,b) => a.priority - b.priority);
+    res.json(agenda.slice(0, 15));
+  } catch (e) {
+    console.error('[agenda-hoje]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+function formatDateBR(iso) {
+  if (!iso) return '?';
+  const d = new Date(iso);
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
+
+// ─── GET /api/alerts ──────────────────────────────────────────
+app.get('/api/alerts', requireAuth, (req, res) => {
+  try {
+    const ploomesId = req.session.ploomesUserId;
+    const role = req.session.role;
+    const isGestor = role === 'admin' || role === 'gestor' || role === 'supervisor';
+    const alerts = db.prepare(`
+      SELECT * FROM anomaly_alerts
+      WHERE resolved_at IS NULL
+        AND detected_at >= datetime('now', '-7 days')
+        ${isGestor ? '' : `AND owner_ploomes_id = ?`}
+      ORDER BY
+        CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
+        detected_at DESC
+      LIMIT 20
+    `).all(...(isGestor ? [] : [ploomesId]));
+    res.json(alerts);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── GET /api/gestor-dashboard ────────────────────────────────
+app.get('/api/gestor-dashboard', requireAuth, requireAdminOrGestor, async (req, res) => {
+  try {
+    const dict = await loadDictionary();
+    const now = new Date();
+    const startMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const startMonthIso = isoNoZ(startMonth);
+    const cutoff30 = new Date(Date.now() - 30*24*60*60*1000);
+    const cutoff7  = new Date(Date.now() - 7*24*60*60*1000);
+
+    const EXCL = EXCLUDED_FROM_ANALYSIS || [];
+    const ARCHIVED = EXCLUDED_PIPELINE_IDS || [];
+    const ownerIds = Object.keys(dict.userById || {}).map(Number).filter(id => !EXCL.includes(id));
+    const ownerFilter = ownerIds.map(id => `OwnerId eq ${id}`).join(' or ');
+    const creatorFilter = ownerIds.map(id => `CreatorId eq ${id}`).join(' or ');
+
+    const [dealsOpen, dealsWonMonth, dealsLostMonth, interactionsWeek, tasksOpen] = await Promise.all([
+      ploomesGetAll(`/Deals?$select=Id,OwnerId,Title,Amount,LastUpdateDate,StatusId,PipelineId&$filter=StatusId%20eq%201%20and%20(${ownerFilter})`),
+      ploomesGetAll(`/Deals?$select=Id,OwnerId,Amount,FinishDate&$filter=StatusId%20eq%202%20and%20FinishDate%20ge%20${encodeURIComponent(startMonthIso)}%20and%20(${ownerFilter})`),
+      ploomesGetAll(`/Deals?$select=Id,OwnerId,Amount,FinishDate,LossReasonId&$filter=StatusId%20eq%203%20and%20FinishDate%20ge%20${encodeURIComponent(startMonthIso)}%20and%20(${ownerFilter})`),
+      ploomesGetAll(`/InteractionRecords?$select=Id,CreatorId,Date,TypeId&$filter=Date%20ge%20${encodeURIComponent(isoNoZ(cutoff7))}%20and%20(${creatorFilter})`),
+      ploomesGetAll(`/Tasks?$select=Id,OwnerId,DateTime,Finished&$filter=Finished%20eq%20false%20and%20(${ownerFilter})`),
+    ]);
+
+    const activeDeals = dealsOpen.filter(d => !ARCHIVED.includes(d.PipelineId));
+
+    const byOwner = {};
+    function ensureOwner(pid) {
+      if (!byOwner[pid]) byOwner[pid] = {
+        name: dict.userById?.[pid]?.Name || `ID ${pid}`,
+        ploomesId: pid, dealsAbertos: 0, receitaAberta: 0,
+        dealsGanhosMes: 0, receitaGanhaMes: 0, dealsPerdidosMes: 0, receitaPerdidaMes: 0,
+        interacoes7d: 0, visitasReunioes7d: 0, tarefasVencidas: 0, dealsPardos30d: 0,
+        riskScore: 0, actions: [],
+      };
+      return byOwner[pid];
+    }
+
+    for (const d of activeDeals) { const r = ensureOwner(d.OwnerId); r.dealsAbertos++; r.receitaAberta += d.Amount || 0; if (d.LastUpdateDate && new Date(d.LastUpdateDate) < cutoff30) r.dealsPardos30d++; }
+    for (const d of dealsWonMonth) { const r = ensureOwner(d.OwnerId); r.dealsGanhosMes++; r.receitaGanhaMes += d.Amount || 0; }
+    for (const d of dealsLostMonth) { const r = ensureOwner(d.OwnerId); r.dealsPerdidosMes++; r.receitaPerdidaMes += d.Amount || 0; }
+    for (const i of interactionsWeek) {
+      if (!ownerIds.includes(i.CreatorId)) continue;
+      const r = ensureOwner(i.CreatorId); r.interacoes7d++;
+      if (i.TypeId === 2 || i.TypeId === 5) r.visitasReunioes7d++;
+    }
+    for (const t of tasksOpen) {
+      if (t.DateTime && new Date(t.DateTime) <= now) ensureOwner(t.OwnerId).tarefasVencidas++;
+    }
+
+    const goalsList = db.prepare(`SELECT * FROM goals WHERE year = ? AND month = ?`).all(now.getUTCFullYear(), now.getUTCMonth() + 1);
+    const goalsByUserId = Object.fromEntries(goalsList.map(g => [g.user_id, g]));
+    const usersList = db.prepare(`SELECT id, ploomes_user_id, display_name FROM app_users WHERE active = 1`).all();
+    const appUserByPloomesId = Object.fromEntries(usersList.filter(u => u.ploomes_user_id).map(u => [u.ploomes_user_id, u]));
+
+    for (const [pid, r] of Object.entries(byOwner)) {
+      let risk = 0;
+      if (r.interacoes7d === 0 && r.dealsAbertos > 0) { risk += 30; r.actions.push('⚠️ Sem interações há 7 dias — verificar motivação'); }
+      if (r.tarefasVencidas >= 5) { risk += 20; r.actions.push(`🔴 ${r.tarefasVencidas} tarefas vencidas — cobrar regularização`); }
+      if (r.dealsPardos30d >= 10) { risk += 20; r.actions.push(`🟡 ${r.dealsPardos30d} deals parados >30 dias — revisar pipeline`); }
+      const appUser = appUserByPloomesId[pid];
+      if (appUser) {
+        const goal = goalsByUserId[appUser.id];
+        if (goal?.valor_mensal > 0) {
+          const progress = r.receitaGanhaMes / goal.valor_mensal;
+          const monthProgress = now.getUTCDate() / new Date(now.getUTCFullYear(), now.getUTCMonth() + 1, 0).getUTCDate();
+          r.metaProgress = progress; r.metaValor = goal.valor_mensal;
+          if (monthProgress > 0.6 && progress < 0.3) { risk += 25; r.actions.push(`🚨 ${Math.round(monthProgress*100)}% do mês passado, ${Math.round(progress*100)}% da meta — intervenção necessária`); }
+          else if (monthProgress > 0.4 && progress < 0.2) { risk += 15; r.actions.push(`⚠️ Meta em risco — ${Math.round(progress*100)}% atingida`); }
+        }
+      }
+      if (r.dealsPerdidosMes > r.dealsGanhosMes * 3 && r.dealsPerdidosMes > 5) { risk += 15; r.actions.push(`⚠️ Taxa de conversão baixa este mês (${r.dealsGanhosMes}G / ${r.dealsPerdidosMes}P)`); }
+      r.riskScore = Math.min(100, risk);
+    }
+
+    const criticalAlerts = db.prepare(`
+      SELECT * FROM anomaly_alerts
+      WHERE severity = 'critical' AND resolved_at IS NULL
+        AND detected_at >= datetime('now', '-2 days')
+      ORDER BY detected_at DESC LIMIT 10
+    `).all();
+
+    const teamTotals = {
+      receitaMes: dealsWonMonth.reduce((s,d) => s + (d.Amount||0), 0),
+      dealsGanhosMes: dealsWonMonth.length, dealsPerdidosMes: dealsLostMonth.length,
+      dealsAbertos: activeDeals.length, receitaAberta: activeDeals.reduce((s,d) => s + (d.Amount||0), 0),
+      interacoes7d: interactionsWeek.filter(i => ownerIds.includes(i.CreatorId)).length,
+      tarefasVencidas: Object.values(byOwner).reduce((s,r) => s + r.tarefasVencidas, 0),
+    };
+
+    const vendedores = Object.values(byOwner).sort((a,b) => b.riskScore - a.riskScore || b.receitaGanhaMes - a.receitaGanhaMes);
+    res.json({ teamTotals, vendedores, criticalAlerts, generatedAt: now.toISOString() });
+  } catch (e) {
+    console.error('[gestor-dashboard]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/ranking', requireAuth, async (req, res) => {
   try {
     const now = new Date();
@@ -3005,7 +3295,7 @@ app.get('/api/funnel-health', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/chat', requireAuth, async (req, res) => {
+app.post('/api/chat', requireAuth, chatRateLimit, async (req, res) => {
   const { message, target_ploomes_id, target_name } = req.body;
   if (!message?.trim()) return res.status(400).json({ error: 'Mensagem vazia' });
   const sessionId = req.session.id;
@@ -3496,7 +3786,7 @@ Quando tiver dado de meta mensal, calcule e mostre o ritmo necessário:
 });
 
 // ─── Chat Coach (rota separada com systemPrompt socrático) ─────────────────
-app.post('/api/chat/coach', requireAuth, async (req, res) => {
+app.post('/api/chat/coach', requireAuth, chatRateLimit, async (req, res) => {
   const { message, target_ploomes_id, target_name } = req.body;
   if (!message?.trim()) return res.status(400).json({ error: 'Mensagem vazia' });
   const sessionId = req.session.id;
@@ -4036,7 +4326,131 @@ module.exports = {
   EXCLUDED_FROM_ANALYSIS,
 };
 
+// ─── Engine de detecção de anomalias ──────────────────────────────────────────
+async function detectAnomalies() {
+  try {
+    console.log('[anomaly] iniciando detecção...');
+    const dict = await loadDictionary();
+    const now = new Date();
+    const cutoff21 = new Date(Date.now() - 21*24*60*60*1000);
+    const cutoff7  = new Date(Date.now() - 7*24*60*60*1000);
+    const startMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+
+    const EXCL = EXCLUDED_FROM_ANALYSIS || [];
+    const ARCHIVED_PIPELINES = EXCLUDED_PIPELINE_IDS || [];
+    const ownerIds = Object.keys(dict.userById || {}).filter(id => !EXCL.includes(Number(id)));
+    const ownerFilter = ownerIds.map(id => `OwnerId eq ${id}`).join(' or ');
+    const creatorFilter = ownerIds.map(id => `CreatorId eq ${id}`).join(' or ');
+
+    const [dealsOpen, interactionsWeek, tasksOpen, dealsMonthLost] = await Promise.all([
+      ploomesGetAll(`/Deals?$select=Id,OwnerId,Title,Amount,LastUpdateDate,StatusId,PipelineId&$filter=StatusId%20eq%201${ownerFilter ? `%20and%20(${ownerFilter})` : ''}`),
+      ploomesGetAll(`/InteractionRecords?$select=Id,CreatorId,Date&$filter=Date%20ge%20${encodeURIComponent(isoNoZ(cutoff7))}${creatorFilter ? `%20and%20(${creatorFilter})` : ''}`),
+      ploomesGetAll(`/Tasks?$select=Id,OwnerId,DateTime,Finished&$filter=Finished%20eq%20false${ownerFilter ? `%20and%20(${ownerFilter})` : ''}`),
+      ploomesGetAll(`/Deals?$select=Id,OwnerId,Amount,FinishDate&$filter=StatusId%20eq%203%20and%20FinishDate%20ge%20${encodeURIComponent(isoNoZ(startMonth))}${ownerFilter ? `%20and%20(${ownerFilter})` : ''}`),
+    ]);
+
+    const activeDealsOpen = dealsOpen.filter(d => !ARCHIVED_PIPELINES.includes(d.PipelineId));
+
+    const interByOwner = {};
+    for (const i of interactionsWeek) {
+      interByOwner[i.CreatorId] = (interByOwner[i.CreatorId] || 0) + 1;
+    }
+
+    const lostByOwner = {};
+    for (const d of dealsMonthLost) {
+      lostByOwner[d.OwnerId] = (lostByOwner[d.OwnerId] || 0) + 1;
+    }
+
+    const alerts = [];
+
+    // Regra 1: deals parados >21d
+    for (const d of activeDealsOpen) {
+      if (d.LastUpdateDate && new Date(d.LastUpdateDate) < cutoff21) {
+        const days = Math.floor((now - new Date(d.LastUpdateDate)) / 86400000);
+        const ownerName = dict.userById?.[d.OwnerId]?.Name || `ID ${d.OwnerId}`;
+        alerts.push({
+          rule_id: 'deal_stalled',
+          severity: days > 45 ? 'critical' : 'warning',
+          target_type: 'deal',
+          target_id: String(d.Id),
+          owner_ploomes_id: d.OwnerId,
+          message: `Deal "${d.Title || d.Id}" (${ownerName}) sem atualização há ${days} dias${d.Amount ? ` — R$ ${d.Amount.toLocaleString('pt-BR', {minimumFractionDigits:2})} em risco` : ''}`,
+          data_json: JSON.stringify({ dealId: d.Id, days, amount: d.Amount }),
+        });
+      }
+    }
+
+    // Regra 2: vendedor sem interação há 7 dias com deals abertos
+    const ownerIdNums = [...new Set(activeDealsOpen.map(d => d.OwnerId).filter(Boolean))];
+    for (const pid of ownerIdNums) {
+      const hasInteraction = (interByOwner[pid] || 0) > 0;
+      const openCount = activeDealsOpen.filter(d => d.OwnerId === pid).length;
+      if (!hasInteraction && openCount > 0) {
+        const ownerName = dict.userById?.[pid]?.Name || `ID ${pid}`;
+        alerts.push({
+          rule_id: 'no_activity_7d',
+          severity: 'warning',
+          target_type: 'owner',
+          target_id: String(pid),
+          owner_ploomes_id: pid,
+          message: `${ownerName}: sem nenhuma interação nos últimos 7 dias com ${openCount} deals em aberto`,
+          data_json: JSON.stringify({ openDeals: openCount }),
+        });
+      }
+    }
+
+    // Regra 3: tarefas vencidas excessivas (>5)
+    const overdueByOwner = {};
+    for (const t of tasksOpen) {
+      if (t.DateTime && new Date(t.DateTime) <= now) {
+        overdueByOwner[t.OwnerId] = (overdueByOwner[t.OwnerId] || 0) + 1;
+      }
+    }
+    for (const [pid, count] of Object.entries(overdueByOwner)) {
+      if (count >= 5) {
+        const ownerName = dict.userById?.[pid]?.Name || `ID ${pid}`;
+        alerts.push({
+          rule_id: 'many_overdue_tasks',
+          severity: count >= 10 ? 'critical' : 'warning',
+          target_type: 'owner',
+          target_id: String(pid),
+          owner_ploomes_id: Number(pid),
+          message: `${ownerName}: ${count} tarefas vencidas acumuladas`,
+          data_json: JSON.stringify({ overdueCount: count }),
+        });
+      }
+    }
+
+    // Salvar no DB (limpar antigos primeiro)
+    db.prepare(`DELETE FROM anomaly_alerts WHERE detected_at < datetime('now', '-3 days') AND resolved_at IS NULL`).run();
+    db.prepare(`DELETE FROM anomaly_alerts WHERE detected_at < datetime('now', '-7 days')`).run();
+
+    const insert = db.prepare(`
+      INSERT OR REPLACE INTO anomaly_alerts (rule_id, severity, target_type, target_id, owner_ploomes_id, message, data_json, detected_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `);
+    for (const a of alerts) {
+      insert.run(a.rule_id, a.severity, a.target_type, a.target_id, a.owner_ploomes_id, a.message, a.data_json);
+    }
+    console.log(`[anomaly] detectados ${alerts.length} alertas (${alerts.filter(a=>a.severity==='critical').length} críticos)`);
+  } catch (e) {
+    console.error('[anomaly] erro na detecção:', e.message);
+  }
+}
+
 if (require.main === module) {
+  // ─── Warehouse sync periódico (a cada 6h) ─────────────────────────────────
+  setInterval(() => {
+    console.log('[cron] sync warehouse agendado (6h)');
+    kickWarehouseSyncBackground('cron-6h');
+  }, 6 * 60 * 60 * 1000);
+  // Sync imediato no startup se warehouse estiver stale
+  setTimeout(() => kickWarehouseSyncBackground('startup'), 30 * 1000);
+
+  // ─── Engine de detecção de anomalias (a cada 6h) ──────────────────────
+  setInterval(() => detectAnomalies(), 6 * 60 * 60 * 1000);
+  setTimeout(() => detectAnomalies(), 2 * 60 * 1000);
+
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[server] Ploomes Analyst rodando na porta ${PORT}`);
     loadDictionary().catch(e => console.error('[dict] Erro:', e.message));

@@ -266,6 +266,19 @@
   .deal-item-meta { color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
   .deal-days-danger { color: var(--danger); font-weight: 700; }
   .deal-days-warn   { color: var(--warning); font-weight: 700; }
+
+  /* ── Widget: Faça Agora ── */
+  .agenda-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 20px; box-shadow: var(--shadow); }
+  .agenda-header { display: flex; align-items: center; justify-content: space-between; font-weight: 600; font-size: 15px; margin-bottom: 12px; }
+  .agenda-badge { background: #DC2626; color: #fff; border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 700; }
+  .agenda-list { display: flex; flex-direction: column; gap: 8px; }
+  .agenda-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+  .agenda-item.p0 { background: rgba(220,38,38,0.12); border-left: 3px solid #DC2626; }
+  .agenda-item.p1 { background: rgba(220,38,38,0.07); border-left: 3px solid #DC2626; }
+  .agenda-item.p2 { background: rgba(217,119,6,0.08); border-left: 3px solid #D97706; }
+  .agenda-item.p3 { background: rgba(5,150,105,0.08); border-left: 3px solid #059669; }
+  .agenda-item-label { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7; }
+  .agenda-item-action { color: var(--text); line-height: 1.4; margin-top: 1px; }
 </style>
 </head>
 <body>
@@ -315,6 +328,15 @@
     </div>
 
     <div class="container">
+      <!-- Widget: Faça Agora -->
+      <div id="agendaCard" class="agenda-card" style="display:none">
+        <div class="agenda-header">
+          <span>📋 Faça agora</span>
+          <span id="agendaCount" class="agenda-badge">0</span>
+        </div>
+        <div id="agendaList" class="agenda-list"></div>
+      </div>
+
       <div class="grid">
         <div class="card"><div class="k">Deals Abertos</div><div class="v" id="k1">—</div><div class="sub" id="k1s">—</div></div>
         <div class="card"><div class="k">Ganhos (mês)</div><div class="v" id="k2">—</div><div class="sub" id="k2s">—</div></div>
@@ -739,6 +761,45 @@ async function init(){
   }
   await loadDashboard();
 }
+
+async function loadAgenda() {
+  try {
+    const items = await fetch('/api/agenda-hoje').then(r => r.json());
+    if (!items || items.length === 0) return;
+    const card = document.getElementById('agendaCard');
+    const list = document.getElementById('agendaList');
+    const badge = document.getElementById('agendaCount');
+    if (!card || !list) return;
+    badge.textContent = items.length;
+    list.innerHTML = '';
+    items.slice(0, 7).forEach(item => {
+      const el = document.createElement('div');
+      el.className = 'agenda-item p' + (item.priority ?? 2);
+      const iconEl = document.createElement('span');
+      iconEl.style.cssText = 'font-size:16px;flex-shrink:0';
+      iconEl.textContent = item.icon || '📌';
+      const body = document.createElement('div');
+      const labelEl = document.createElement('div');
+      labelEl.className = 'agenda-item-label';
+      labelEl.textContent = item.label || '';
+      const actionEl = document.createElement('div');
+      actionEl.className = 'agenda-item-action';
+      actionEl.textContent = item.action || '';
+      body.appendChild(labelEl);
+      body.appendChild(actionEl);
+      el.appendChild(iconEl);
+      el.appendChild(body);
+      list.appendChild(el);
+    });
+    card.style.display = '';
+  } catch(e) { console.warn('[agenda]', e.message); }
+}
+
+const _origInit = init;
+init = async function() {
+  await _origInit();
+  loadAgenda();
+};
 
 init();
 </script>

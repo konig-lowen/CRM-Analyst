@@ -1003,10 +1003,10 @@ async function ploomesGetDealsOwnerAggregates(urlPath, userNameById) {
       const ticketMedia = pd.amounts.length > 0 ? +(pd.amounts.reduce((a, b) => a + b, 0) / pd.amounts.length).toFixed(0) : 0;
       const ticketMediana = calcMedian(pd.amounts) != null ? +calcMedian(pd.amounts).toFixed(0) : 0;
       const cicloMedio = pd.ciclos.length > 0 ? +(pd.ciclos.reduce((a, b) => a + b, 0) / pd.ciclos.length).toFixed(0) : null;
-      // Pipeline Velocity = (#won * ticketMedia * winRate%) / cicloMedio
+      // Pipeline Velocity = won * ticket_médio / ciclo_médio  (fórmula correta: won já incorpora o win rate)
       let pipelineVelocity = null;
-      if (pd.won > 0 && ticketMedia > 0 && winRate != null && cicloMedio != null && cicloMedio > 0) {
-        pipelineVelocity = +((pd.won * ticketMedia * (winRate / 100)) / cicloMedio).toFixed(0);
+      if (pd.won > 0 && ticketMedia > 0 && cicloMedio != null && cicloMedio > 0) {
+        pipelineVelocity = +((pd.won * ticketMedia) / cicloMedio).toFixed(0);
       }
       pipelineMetrics[pid] = { won: pd.won, lost: pd.lost, winRate, ticketMedia, ticketMediana, cicloMedio, dealCount: pd.count, pipelineVelocity };
     }

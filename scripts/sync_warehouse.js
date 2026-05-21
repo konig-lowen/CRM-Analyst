@@ -385,14 +385,22 @@ function materialize(db, runId) {
       `).get(oid, d180);
       const lostNoReasonPct = (lostStats.total || 0) > 0 ? (lostStats.no_reason / lostStats.total) : null;
 
-      // Simple score: start at 100, subtract penalties (capped)
-      let score = 100;
-      score -= Math.min(60, abandoned90 * 3);
-      score -= Math.min(25, openNoAmount * 1);
-      if (lostNoReasonPct != null) score -= Math.min(25, Math.round(lostNoReasonPct * 100));
-      score = Math.max(0, Math.min(100, Math.round(score)));
-
-      insH.run(runId, oid, score, abandoned90, openNoAmount, lostNoReasonPct);
+      // Score de higiene unificado (40+30+30) — mesma fórmula do API fallback em server.js
+      // 40pts: % perdidos COM motivo de perda
+      const pts_motivo = (lostStats.total || 0) > 0
+        ? +((1 - lostNoReasonPct) * 40).toFixed(1)
+        : 40; // sem perdas = ok
+      // 30pts: % deals abertos COM valor
+      const totalOpen = db.prepare(`SELECT COUNT(*) as c FROM deals WHERE owner_id=? AND status_id=1`).get(oid).c;
+      const withValue = db.prepare(`SELECT COUNT(*) as c FROM deals WHERE owner_id=? AND status_id=1 AND amount > 0`).get(oid).c;
+      const pts_valor = totalOpen > 0 ? +(withValue / totalOpen * 30).toFixed(1) : 30;
+      // 30pts: % deals abertos atualizados nos últimos 30d
+      const d30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const recentUpdated = db.prepare(`SELECT COUNT(*) as c FROM deals WHERE owner_id=? AND status_id=1 AND last_update_date >= ?`).get(oid, d30).c;
+      const pts_atualiz = totalOpen > 0 ? +(recentUpdated / totalOpen * 30).toFixed(1) : 30;
+      const score = Math.max(0, Math.min(100, Math.round(pts_motivo + pts_valor + pts_atualiz)));
+      const lostNoReasonPct_val = (lostStats.total || 0) > 0 ? lostNoReasonPct : null;
+      insH.run(runId, oid, score, abandoned90, openNoAmount, lostNoReasonPct_val);
     }
   });
   txH();

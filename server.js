@@ -2228,7 +2228,7 @@ async function computeDashboard({ dict, allowedOwnerIds, allowedCreatorIds, targ
   };
 }
 
-async function computeRanking({ dict, scopeOwnerIds, scopeCreatorIds, scopeAppUserIds, year, month, periodStart }) {
+async function computeRanking({ dict, scopeOwnerIds, scopeCreatorIds, scopeAppUserIds, year, month, periodStart, pipelineId }) {
   const now = new Date();
   const start = periodStart || new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
   const startIso = isoNoZ(start);
@@ -2236,12 +2236,13 @@ async function computeRanking({ dict, scopeOwnerIds, scopeCreatorIds, scopeAppUs
 
   const ownerFilter = ploomesOwnerFilter(scopeOwnerIds);
   const creatorFilter = ploomesCreatorFilter(scopeCreatorIds);
+  const pipelineFilter = pipelineId ? `%20and%20PipelineId%20eq%20${pipelineId}` : '';
 
-  const dealsWon = await ploomesGetAll(`/Deals?$select=Id,OwnerId,Amount,FinishDate,StatusId&$filter=StatusId%20eq%202%20and%20FinishDate%20ge%20${encodeURIComponent(startIso)}${ownerFilter ? `%20and%20(${ownerFilter})` : ''}`);
+  const dealsWon = await ploomesGetAll(`/Deals?$select=Id,OwnerId,Amount,FinishDate,StatusId&$filter=StatusId%20eq%202%20and%20FinishDate%20ge%20${encodeURIComponent(startIso)}${pipelineFilter}${ownerFilter ? `%20and%20(${ownerFilter})` : ''}`);
   const interactions = await ploomesGetAll(`/InteractionRecords?$select=Id,CreatorId,Date,TypeId&$filter=Date%20ge%20${encodeURIComponent(startIso)}${creatorFilter ? `%20and%20(${creatorFilter})` : ''}`);
   const tasksFinished = await ploomesGetAll(`/Tasks?$select=Id,OwnerId,DateTime,FinishDate,Finished&$filter=Finished%20eq%20true%20and%20FinishDate%20ge%20${encodeURIComponent(startIso)}${ownerFilter ? `%20and%20(${ownerFilter})` : ''}`);
   const tasksOpen = await ploomesGetAll(`/Tasks?$select=Id,OwnerId,DateTime,Finished&$filter=Finished%20eq%20false${ownerFilter ? `%20and%20(${ownerFilter})` : ''}`);
-  const dealsOpen = await ploomesGetAll(`/Deals?$select=Id,OwnerId,StatusId,LastUpdateDate&$filter=StatusId%20eq%201${ownerFilter ? `%20and%20(${ownerFilter})` : ''}`);
+  const dealsOpen = await ploomesGetAll(`/Deals?$select=Id,OwnerId,StatusId,LastUpdateDate&$filter=StatusId%20eq%201${pipelineFilter}${ownerFilter ? `%20and%20(${ownerFilter})` : ''}`);
 
   const byPloomesId = {};
   function ensure(pid) {
@@ -2883,6 +2884,7 @@ app.get('/api/ranking', requireAuth, async (req, res) => {
     const scopeUsers = db.prepare(`SELECT id, ploomes_user_id FROM app_users WHERE id IN (${scopeAppUserIds.map(()=>'?').join(',')})`).all(...scopeAppUserIds);
     const scopePloomesIds = scopeUsers.map(u => u.ploomes_user_id).filter(Boolean);
 
+    const pipelineId = req.query.pipelineId ? Number(req.query.pipelineId) : null;
     const data = await computeRanking({
       dict,
       scopeOwnerIds: scopePloomesIds,
@@ -2891,6 +2893,7 @@ app.get('/api/ranking', requireAuth, async (req, res) => {
       year: periodYear,
       month: periodMonth,
       periodStart,
+      pipelineId,
     });
     res.json({ ...data, period, periodLabel: period === 'quarter' ? `Q${Math.ceil(periodMonth/3)}/${periodYear}` : period === 'year' ? String(periodYear) : `${periodMonth.toString().padStart(2,'0')}/${periodYear}` });
   } catch (e) {

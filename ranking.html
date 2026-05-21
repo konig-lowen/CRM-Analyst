@@ -198,13 +198,15 @@
         <h1>Ranking</h1>
         <span class="badge" id="scope">—</span>
       </div>
-      <div class="filter" style="display:flex;align-items:center;gap:10px">
+      <div class="filter" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span>Período:</span>
         <select id="period">
           <option value="month">Mês atual</option>
           <option value="quarter">Trimestre atual</option>
           <option value="year">Ano atual</option>
         </select>
+        <span>📂 Funil:</span>
+        <select id="pipelineSelectRanking" style="background:var(--surface2,#1e2130);color:var(--text,#e8eaf0);border:1px solid var(--border,#2e3347);border-radius:6px;padding:4px 8px;font-size:13px"></select>
         <button id="btnRefresh" onclick="forceRefresh()" style="display:none;padding:4px 10px;border-radius:6px;border:1px solid #d1d5db;background:#fff;cursor:pointer;font-size:12px">🔄 Atualizar</button>
       </div>
     </header>
@@ -237,6 +239,7 @@
 let me = null;
 let selectedUserId = null;
 let selectedPeriod = 'month';
+let selectedPipelineId = null;
 
 // ─── sessionStorage cache helpers ────────────────────────────
 const CACHE_TTL = 4 * 60 * 60 * 1000;
@@ -290,11 +293,12 @@ function breakdownText(b){
 }
 
 async function loadRanking(){
-  const rKey = `ranking_${selectedUserId||''}_${selectedPeriod}`;
+  const rKey = `ranking_${selectedUserId||''}_${selectedPeriod}_${selectedPipelineId||''}`;
   const data = await cachedFetch(rKey, async () => {
     const params = new URLSearchParams();
     if (selectedUserId) params.set('userId', selectedUserId);
     params.set('period', selectedPeriod);
+    if (selectedPipelineId) params.set('pipelineId', selectedPipelineId);
     const r = await fetch('/api/ranking?' + params.toString());
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
@@ -346,6 +350,18 @@ async function init(){
     selectedPeriod = e.target.value;
     forceRefresh();
   });
+  // Load pipeline filter
+  const rp = await fetch('/api/pipelines-active');
+  if (rp.ok) {
+    const pipelines = await rp.json();
+    const psel = document.getElementById('pipelineSelectRanking');
+    psel.innerHTML = '<option value="">(Todos os funis)</option>' +
+      pipelines.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    psel.addEventListener('change', () => {
+      selectedPipelineId = psel.value ? Number(psel.value) : null;
+      forceRefresh();
+    });
+  }
   await loadRanking();
 }
 

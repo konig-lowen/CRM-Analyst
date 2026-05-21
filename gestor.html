@@ -212,6 +212,8 @@
   <div class="header-left">
     <div class="header-title"><span>📊</span> Dashboard de Gestão</div>
     <span class="update-badge">Atualizado: <span id="lastUpdate">—</span></span>
+    <label for="pipelineSelectGestor" style="margin-left:1rem;font-size:13px;color:var(--text-muted)">📂 Funil:</label>
+    <select id="pipelineSelectGestor" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:13px"></select>
   </div>
   <div class="header-right">
     <a href="/dashboard" class="btn btn-ghost">← Dashboard</a>
@@ -374,6 +376,9 @@ function renderAlerts(alerts) {
     container.appendChild(item);
   });
 }
+
+// ── Pipeline filter ────────────────────────────────────────
+let selectedPipelineId = null;
 
 // ── Render Vendedores ───────────────────────────────────────
 let vendedoresData = [];
@@ -621,8 +626,11 @@ async function loadAll() {
   clearError();
   showLoading(true);
   try {
+    const params = new URLSearchParams();
+    if (selectedPipelineId) params.set('pipelineId', selectedPipelineId);
+    const gestorUrl = '/api/gestor-dashboard' + (params.toString() ? '?' + params.toString() : '');
     const [gestorRes, alertsRes, agendaRes] = await Promise.allSettled([
-      fetch('/api/gestor-dashboard').then(r => r.json()),
+      fetch(gestorUrl).then(r => r.json()),
       fetch('/api/alerts').then(r => r.json()),
       fetch('/api/agenda-hoje').then(r => r.json()),
     ]);
@@ -645,7 +653,21 @@ async function loadAll() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', loadAll);
+document.addEventListener('DOMContentLoaded', async () => {
+  // Load pipeline filter
+  const rp = await fetch('/api/pipelines-active');
+  if (rp.ok) {
+    const pipelines = await rp.json();
+    const psel = document.getElementById('pipelineSelectGestor');
+    psel.innerHTML = '<option value="">(Todos os funis)</option>' +
+      pipelines.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    psel.addEventListener('change', () => {
+      selectedPipelineId = psel.value ? Number(psel.value) : null;
+      loadAll();
+    });
+  }
+  loadAll();
+});
 </script>
 </body>
 </html>

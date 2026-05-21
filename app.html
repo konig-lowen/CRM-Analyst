@@ -870,8 +870,9 @@ async function renderChat(root) {
         : '/api/dashboard';
       const r = await fetch(url);
       const d = await r.json();
-      document.getElementById('scorecrm').textContent = `Score CRM: ${d.scorecrm ?? '—'}`;
-    } catch {}
+      const elScore = document.getElementById('scorecrm') || document.getElementById('score');
+      if (elScore) elScore.textContent = `Score CRM: ${d.scorecrm ?? '—'}`;
+    } catch (e) { console.warn('[refreshScore]', e); }
   }
 
   async function loadVendors() {
@@ -1132,6 +1133,7 @@ async function renderDashboard(root) {
 
     document.getElementById('k4').textContent = d.tarefasVencidas ?? '—';
     document.getElementById('score').textContent = `Score CRM: ${d.scorecrm ?? '—'}`;
+    document.getElementById('scorecrm') && (document.getElementById('scorecrm').textContent = `Score CRM: ${d.scorecrm ?? '—'}`);
     document.getElementById('updated').textContent = `Dados: ${new Date().toLocaleString('pt-BR')}`;
 
     const goal = d.metaVsRealizado?.goal;

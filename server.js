@@ -2425,7 +2425,7 @@ app.get('/api/warehouse/status', requireAuth, requireAdmin, (req, res) => {
       counts,
     });
   } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
+    res.status(500).json({ ok: false, error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -2467,7 +2467,7 @@ app.post('/api/admin/generate-report', requireAuth, requireAdminOrGestor, async 
     fs.writeFileSync(outPath, html, 'utf-8');
     return res.json({ ok: true, filename, outPath });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -2489,7 +2489,7 @@ app.get('/api/admin/reports', requireAuth, requireAdminOrGestor, (req, res) => {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     res.json({ ok: true, reports: files });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -2504,7 +2504,7 @@ app.get('/api/admin/reports/:filename', requireAuth, requireAdminOrGestor, (req,
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.sendFile(filePath);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -2521,7 +2521,7 @@ app.get('/api/ploomes-users', requireAuth, async (req, res) => {
     ).map(u => ({ id: u.Id, name: u.Name, email: u.Email }));
     res.json(users);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -2539,7 +2539,7 @@ app.get('/api/pipelines-active', requireAuth, async (req, res) => {
       .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
     res.json(pipelines);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -2602,7 +2602,7 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
     res.json(data);
   } catch (e) {
     console.error('[dashboard]', e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -2697,7 +2697,7 @@ app.get('/api/agenda-hoje', requireAuth, async (req, res) => {
     res.json(agenda.slice(0, 15));
   } catch (e) {
     console.error('[agenda-hoje]', e.message);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -2725,7 +2725,7 @@ app.get('/api/alerts', requireAuth, (req, res) => {
     `).all(...(isGestor ? [] : [ploomesId]));
     res.json(alerts);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -2835,7 +2835,7 @@ app.get('/api/gestor-dashboard', requireAuth, requireAdminOrGestor, async (req, 
     res.json({ teamTotals, vendedores, criticalAlerts, generatedAt: now.toISOString() });
   } catch (e) {
     console.error('[gestor-dashboard]', e.message);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -2878,7 +2878,7 @@ app.get('/api/ranking', requireAuth, async (req, res) => {
     res.json(data);
   } catch (e) {
     console.error('[ranking]', e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -2945,7 +2945,7 @@ app.get('/api/data-quality', requireAuth, requireAdminOrGestor, async (req, res)
     const result = await computeDataQualityDiagnostic();
     res.json(result);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -2957,7 +2957,7 @@ app.get('/api/crm-health', requireAuth, async (req, res) => {
     const result = await computeCrmHealth();
     res.json(result);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -3055,7 +3055,7 @@ app.post('/api/admin/users/:id/resolve-ploomes', requireAuth, requireAdmin, asyn
     }
     return res.json({ ok: false, warning: 'E-mail não encontrado no Ploomes' });
   } catch(e) {
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -3203,7 +3203,7 @@ app.post('/api/sync-ploomes-users', requireAuth, async (req, res) => {
     }
     res.json({ ok: true, created, updated, skipped, total: vendedores.length });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -3316,7 +3316,7 @@ app.get('/api/funnel-health', requireAuth, async (req, res) => {
     res.json(result);
   } catch (e) {
     console.error('[funnel-health]', e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -3806,7 +3806,7 @@ Quando tiver dado de meta mensal, calcule e mostre o ritmo necessário:
 
   } catch (e) {
     console.error('[chat error]', e);
-    res.status(500).json({ error: 'Erro ao processar: ' + e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -4068,7 +4068,7 @@ app.post('/api/chat/coach', requireAuth, chatRateLimit, async (req, res) => {
 
   } catch (e) {
     console.error('[chat/coach error]', e);
-    res.status(500).json({ error: 'Erro ao processar: ' + e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -4130,7 +4130,7 @@ app.get('/api/reports/users', requireAuth, (req, res) => {
       users.sort((a, b) => (a.name || '').localeCompare((b.name || ''), 'pt-BR'));
       res.json(users);
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: 'Erro interno. Tente novamente.' });
     }
   })();
 });
@@ -4239,7 +4239,7 @@ app.get('/api/reports/ploomes/:ploomesUserId', requireAuth, async (req, res) => 
     });
   } catch (e) {
     console.error('[reports/ploomes error]', e);
-    res.status(500).json({ error: 'Erro ao montar relatório: ' + e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -4336,7 +4336,7 @@ app.get('/api/reports/:userId', requireAuth, async (req, res) => {
     });
   } catch (e) {
     console.error('[reports]', e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -4446,13 +4446,19 @@ async function detectAnomalies() {
       }
     }
 
-    // Salvar no DB (limpar antigos primeiro)
-    db.prepare(`DELETE FROM anomaly_alerts WHERE detected_at < datetime('now', '-3 days') AND resolved_at IS NULL`).run();
-    db.prepare(`DELETE FROM anomaly_alerts WHERE detected_at < datetime('now', '-7 days')`).run();
+    // Salvar no DB (limpar antigos sem resolução > 7 dias, manter histórico)
+    db.prepare(`DELETE FROM anomaly_alerts WHERE detected_at < datetime('now', '-7 days') AND resolved_at IS NULL`).run();
+    db.prepare(`DELETE FROM anomaly_alerts WHERE detected_at < datetime('now', '-30 days')`).run();
 
     const insert = db.prepare(`
-      INSERT OR REPLACE INTO anomaly_alerts (rule_id, severity, target_type, target_id, owner_ploomes_id, message, data_json, detected_at)
+      INSERT INTO anomaly_alerts (rule_id, severity, target_type, target_id, owner_ploomes_id, message, data_json, detected_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(rule_id, target_id) DO UPDATE SET
+        severity = excluded.severity,
+        message = excluded.message,
+        data_json = excluded.data_json,
+        detected_at = excluded.detected_at,
+        notified = 0
     `);
     for (const a of alerts) {
       insert.run(a.rule_id, a.severity, a.target_type, a.target_id, a.owner_ploomes_id, a.message, a.data_json);

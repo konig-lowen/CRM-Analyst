@@ -227,7 +227,7 @@
             </div>
             <div>
               <label>Senha</label>
-              <input id="new-password" type="password" placeholder="mínimo 4" />
+              <input id="new-password" type="password" placeholder="mínimo 8 caracteres" minlength="8" />
             </div>
             <button class="btn btn-primary" onclick="createUser()">Criar</button>
           </div>
@@ -386,12 +386,13 @@ async function loadUsers(){
 
 async function createUser(){
   const plSel = document.getElementById('new-ploomes-select');
-  const plInput = document.getElementById('new-ploomes'); // legacy (may not exist)
+  const plInput = document.getElementById('new-ploomes');
   const ploomes_user_id = (plInput ? (plInput.value||'').trim() : '') || (plSel ? (plSel.value||'').trim() : '');
-
+  const pwd = document.getElementById('new-password').value;
+  if (pwd.length < 8) return showMsg('Senha deve ter no mínimo 8 caracteres.', false);
   const body={
     username: document.getElementById('new-username').value.trim().toLowerCase(),
-    password: document.getElementById('new-password').value,
+    password: pwd,
     role: document.getElementById('new-role').value,
     display_name: document.getElementById('new-display').value.trim(),
     ploomes_user_id,

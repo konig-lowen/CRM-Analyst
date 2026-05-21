@@ -621,16 +621,23 @@ async function loadAll() {
   clearError();
   showLoading(true);
   try {
-    const [gestorData, alerts, agenda] = await Promise.all([
+    const [gestorRes, alertsRes, agendaRes] = await Promise.allSettled([
       fetch('/api/gestor-dashboard').then(r => r.json()),
       fetch('/api/alerts').then(r => r.json()),
       fetch('/api/agenda-hoje').then(r => r.json()),
     ]);
-    renderTotals(gestorData.teamTotals);
-    renderAlerts(alerts);
-    renderVendedores(gestorData.vendedores);
-    renderAgenda(agenda);
-    document.getElementById('lastUpdate').textContent = new Date(gestorData.generatedAt || Date.now()).toLocaleString('pt-BR');
+    if (gestorRes.status === 'fulfilled') {
+      renderTotals(gestorRes.value.teamTotals);
+      renderVendedores(gestorRes.value.vendedores);
+      document.getElementById('lastUpdate').textContent = new Date(gestorRes.value.generatedAt || Date.now()).toLocaleString('pt-BR');
+    } else {
+      console.warn('[gestor-dashboard]', gestorRes.reason);
+      showError('Erro ao carregar dados do gestor: ' + gestorRes.reason?.message);
+    }
+    if (alertsRes.status === 'fulfilled') renderAlerts(alertsRes.value);
+    else console.warn('[alerts]', alertsRes.reason);
+    if (agendaRes.status === 'fulfilled') renderAgenda(agendaRes.value);
+    else console.warn('[agenda]', agendaRes.reason);
   } catch (e) {
     showError(e.message);
   } finally {

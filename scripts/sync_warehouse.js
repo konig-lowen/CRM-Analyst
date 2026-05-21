@@ -567,6 +567,9 @@ async function main() {
     materialize(db, Number(runId));
 
     db.prepare('UPDATE etl_runs SET finished_at=?, ok=1, error=NULL WHERE id=?').run(isoNow(), runId);
+    // Alertar sobre deals sem owner
+    const orphans = db.prepare('SELECT COUNT(*) as c FROM deals WHERE owner_id IS NULL AND status_id = 1').get();
+    if (orphans.c > 0) console.warn(`[warehouse] AVISO: ${orphans.c} deals abertos sem owner_id — invísveis nas análises por vendedor`);
     console.log(`[warehouse] run ${runId} finished OK`);
   } catch (err) {
     db.prepare('UPDATE etl_runs SET finished_at=?, ok=0, error=? WHERE id=?').run(isoNow(), String(err && err.stack ? err.stack : err), runId);

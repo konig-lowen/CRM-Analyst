@@ -291,7 +291,8 @@ function breakdownText(b){
 async function loadRanking(){
   const rKey = `ranking_${selectedUserId||''}`;
   const data = await cachedFetch(rKey, async () => {
-    const r = await fetch('/api/ranking');
+    const url = selectedUserId ? `/api/ranking?userId=${selectedUserId}` : '/api/ranking';
+    const r = await fetch(url);
     return r.json();
   });
 

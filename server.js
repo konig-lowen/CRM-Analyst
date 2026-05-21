@@ -556,8 +556,8 @@ function verifyPassword(p, stored) {
 const userCount = db.prepare('SELECT COUNT(*) as c FROM app_users').get();
 if (userCount.c === 0) {
   db.prepare('INSERT INTO app_users (username, password_hash, role, display_name, active) VALUES (?, ?, ?, ?, 1)')
-    .run('paulo', hashPassword('vetorv2024'), 'admin', 'Paulo');
-  console.log('[auth] Usuário padrão paulo criado (senha: vetorv2024)');
+    .run('paulo', hashPassword(process.env.ADMIN_INITIAL_PASSWORD || 'vetorv2024'), 'admin', 'Paulo');
+  console.log('[auth] Usuário padrão paulo criado. Altere a senha no primeiro acesso.');
 }
 
 // --- Dicionário (cache 30 min) ---

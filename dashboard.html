@@ -722,8 +722,9 @@ async function loadDashboard(){
     document.getElementById('goalText').textContent = `Realizado: ${moneyBR(realizado)} (${Math.round(pct*100)}%)`;
   }
 
+  function escapeHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   const alerts = d.alertas || [];
-  document.getElementById('alerts').innerHTML = alerts.length ? alerts.map(a => `<div class="item">⚠️ ${a}</div>`).join('') : '<div class="item">Sem alertas críticos.</div>';
+  document.getElementById('alerts').innerHTML = alerts.length ? alerts.map(a => `<div class="item">⚠️ ${escapeHtml(a)}</div>`).join('') : '<div class="item">Sem alertas críticos.</div>';
 
   const iby = Object.entries(d.interacoes30d || {}).sort((a,b)=>b[1]-a[1]).slice(0,8);
   document.getElementById('interByType').innerHTML = iby.length ? iby.map(([k,v]) => `<div class="item">${k}: <strong>${v}</strong></div>`).join('') : '<div class="item">—</div>';

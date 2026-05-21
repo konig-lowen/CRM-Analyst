@@ -282,7 +282,7 @@ function materialize(db, runId) {
     GROUP BY pipeline_id, owner_id;
   `);
 
-  // Conversion 30/90 by pipeline
+  // Conversion 30/90 by pipeline + linha global (pipeline_id = NULL)
   for (const periodDays of [30, 90]) {
     const cutoff = periodDays === 30 ? d30 : d90;
     db.exec(`
@@ -298,6 +298,13 @@ function materialize(db, runId) {
           AND (pipeline_id IS NULL OR pipeline_id NOT IN (${INACTIVE_PIPELINE_IDS.join(',')}))
           AND (owner_id IS NULL OR owner_id NOT IN (${EXCLUDED_FROM_ANALYSIS.join(',')}))
         GROUP BY pipeline_id
+      ),
+      global AS (
+        SELECT
+          NULL as pipeline_id,
+          SUM(won_count) as won_count,
+          SUM(lost_count) as lost_count
+        FROM agg
       )
       SELECT
         ${runId} as run_id,
@@ -306,7 +313,12 @@ function materialize(db, runId) {
         won_count,
         lost_count,
         CASE WHEN (won_count + lost_count) > 0 THEN (won_count * 1.0 / (won_count + lost_count)) ELSE NULL END as win_rate
-      FROM agg;
+      FROM agg
+      UNION ALL
+      SELECT
+        ${runId}, ${periodDays}, NULL, won_count, lost_count,
+        CASE WHEN (won_count + lost_count) > 0 THEN (won_count * 1.0 / (won_count + lost_count)) ELSE NULL END
+      FROM global;
     `);
   }
 

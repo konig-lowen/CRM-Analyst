@@ -506,7 +506,7 @@
         <div id="user-name">—</div>
         <div id="user-role" class="muted">—</div>
       </div>
-      <button id="btnAppRefresh" class="btn-outline btn-sm" style="display:none">🔄 Atualizar</button>
+      <button id="btnAppRefresh" class="btn-outline btn-sm" style="display:none"></button>
       <a href="/logout" class="btn-outline btn-sm" style="text-decoration:none; text-align:center;">Sair</a>
     </div>
   </aside>
@@ -590,7 +590,7 @@ function setSidebarMe() {
   if (isAdminOrGestor || isSupervisor) document.getElementById('reportsNavLink').style.display = 'flex';
 
   // Global refresh button only for admin/gestor
-  if (isAdminOrGestor) document.getElementById('btnAppRefresh').style.display = 'inline-block';
+  // botão de refresh removido — atualização automática às 00h BRT
 }
 
 // Global refresh button (admin/gestor only)
@@ -997,7 +997,7 @@ async function renderDashboard(root) {
         </div>
         <div style="display:flex;align-items:center;gap:10px">
           <div id="updated">—</div>
-          <button id="btnRefresh" style="display:none;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:12px">🔄 Atualizar</button>
+          <button id="btnRefresh" style="display:none"></button>
         </div>
       </header>
 
@@ -1081,11 +1081,7 @@ async function renderDashboard(root) {
 
   document.getElementById('who').textContent = `${me.displayName} • ${me.role}`;
 
-  if (['admin','gestor'].includes(me.role)) {
-    const b = document.getElementById('btnRefresh');
-    b.style.display = 'inline-block';
-    b.onclick = () => { dashInvalidate(); loadAll(); };
-  }
+  // btnRefresh do dashboard removido — atualização automática às 00h BRT
 
   function closeModal() { document.getElementById('funnelModal').classList.remove('open'); }
   function closeHygieneModal() { document.getElementById('hygieneModal').classList.remove('open'); }
@@ -1375,11 +1371,7 @@ async function renderRanking(root) {
             <option value="last90">Últimos 90 dias</option>
             <option value="year">Ano (YTD)</option>
           </select>
-          <button id="btnRefresh" style="display:none;padding:4px 10px;border-radius:6px;border:1px solid #d1d5db;background:#fff;cursor:pointer;font-size:12px">🔄 Atualizar</button>
-        </div>
-      </header>
-
-      <div class="container">
+          <button id="btnRefresh" style="display:none"></button>
         <div id="rankStatus" class="muted" style="margin:8px 0 14px;display:none"></div>
         <div class="top3" id="top3" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px"></div>
 
@@ -1550,15 +1542,7 @@ async function renderRanking(root) {
     });
   }
 
-  if (['admin','gestor'].includes(me.role)) {
-
-    const b = document.getElementById('btnRefresh');
-    b.style.display = 'inline-block';
-    b.onclick = () => {
-      Object.keys(appCache.store || {}).forEach(k => { if (String(k).startsWith('ranking_')) appCache.invalidate(k); });
-      loadRanking();
-    };
-  }
+  // btnRefresh do ranking removido — atualização automática às 00h BRT
 
   await loadRanking();
 }
@@ -1583,11 +1567,7 @@ async function renderReports(root) {
         </div>
         <div style="display:flex;align-items:center;gap:10px">
           <div class="muted" id="hint">Selecione um vendedor à esquerda.</div>
-          <button id="btnRefresh" style="display:none;padding:4px 10px;border-radius:6px;border:1px solid #d1d5db;background:#fff;cursor:pointer;font-size:12px">🔄 Atualizar</button>
-        </div>
-      </header>
-
-      <div class="reports-content">
+          <button id="btnRefresh" style="display:none"></button>
         <div class="panel">
           <div class="search"><input id="q" placeholder="Buscar vendedor..." /></div>
           <div id="list">Carregando...</div>
@@ -1602,13 +1582,7 @@ async function renderReports(root) {
   const ttl = 4 * 60 * 60 * 1000;
   document.getElementById('who').textContent = `${me.displayName} • ${me.role}`;
 
-  if(['admin','gestor'].includes(me.role)) document.getElementById('btnRefresh').style.display='inline-block';
-  document.getElementById('btnRefresh').onclick = () => {
-    // clear reports caches
-    Object.keys(appCache.store).forEach(k => { if (k.startsWith('reports_')) appCache.invalidate(k); });
-    appCache.invalidate('reports_users');
-    init();
-  };
+  // btnRefresh dos reports removido — atualização automática às 00h BRT
 
   function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 

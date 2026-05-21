@@ -4464,11 +4464,29 @@ async function detectAnomalies() {
 }
 
 if (require.main === module) {
-  // ─── Warehouse sync periódico (a cada 6h) ─────────────────────────────────
-  setInterval(() => {
-    console.log('[cron] sync warehouse agendado (6h)');
-    kickWarehouseSyncBackground('cron-6h');
-  }, 6 * 60 * 60 * 1000);
+  // ─── Warehouse sync diário às 00h BRT (03h UTC) ───────────────────────────
+  function scheduleDailySync() {
+    const now = new Date();
+    // próximo 03:00 UTC
+    const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 3, 0, 0, 0));
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    const msUntil = next - now;
+    console.log(`[cron] próximo sync diário em ${Math.round(msUntil/60000)} min (${next.toISOString()})`);
+    setTimeout(() => {
+      console.log('[cron] sync diário 00h BRT iniciado');
+      kickWarehouseSyncBackground('cron-daily-00h');
+      // Limpar fetch_cache acumulado
+      try {
+        const deleted = db.prepare(`DELETE FROM fetch_cache WHERE expires_at <= CURRENT_TIMESTAMP`).run();
+        if (deleted.changes) console.log(`[cron] fetch_cache: ${deleted.changes} entradas expiradas removidas`);
+      } catch(e) { console.warn('[cron] fetch_cache cleanup erro:', e.message); }
+      // Invalidar caches em memória
+      dashboardCache.clear();
+      funnelHealthCache.clear();
+      scheduleDailySync(); // reagendar para o próximo dia
+    }, msUntil);
+  }
+  scheduleDailySync();
   // Sync imediato no startup se warehouse estiver stale
   setTimeout(() => kickWarehouseSyncBackground('startup'), 30 * 1000);
 

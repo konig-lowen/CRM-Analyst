@@ -316,7 +316,7 @@
       </div>
       <div style="display:flex;align-items:center;gap:10px">
         <div id="updated">—</div>
-        <button id="btnRefresh" onclick="forceRefresh()" style="display:none;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:12px">🔄 Atualizar</button>
+        <button id="btnRefresh" style="display:none"></button>
       </div>
     </header>
 
@@ -745,10 +745,7 @@ async function init(){
     document.getElementById('user-role').textContent = me.role || '—';
   } catch {}
 
-  // Botão Atualizar: apenas admin e gestor
-  if (['admin','gestor'].includes(me.role)) {
-    document.getElementById('btnRefresh').style.display = 'inline-block';
-  }
+  // btnRefresh removido — atualização automática às 00h BRT
 
   if (['admin','gestor','supervisor'].includes(me.role)) {
     document.getElementById('adminLink').style.display = 'flex';

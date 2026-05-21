@@ -82,6 +82,7 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 
 // --- DB ---
 const db = new Database('/opt/ploomes-analyst/history.db');
+db.pragma('foreign_keys = ON');
 
 // --- Warehouse (read-mostly local DB fed by incremental ETL) ---
 const WAREHOUSE_DB_PATH = process.env.WAREHOUSE_DB_PATH || '/opt/ploomes-analyst/warehouse.db';
@@ -2544,6 +2545,12 @@ app.get('/api/pipelines-active', requireAuth, async (req, res) => {
 
 // ─── Dashboard ────────────────────────────────────────────────
 const dashboardCache = new Map(); // key -> {data, ts}
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of dashboardCache) {
+    if (now - v.ts > DASHBOARD_CACHE_TTL * 2) dashboardCache.delete(k);
+  }
+}, 10 * 60 * 1000);
 const DASHBOARD_CACHE_TTL = 4 * 60 * 60 * 1000;
 app.get('/api/dashboard', requireAuth, async (req, res) => {
   try {
@@ -2609,7 +2616,7 @@ app.get('/api/agenda-hoje', requireAuth, async (req, res) => {
 
     const dict = await loadDictionary();
     const EXCL = EXCLUDED_FROM_ANALYSIS || [];
-    const ARCHIVED_PIPELINES = EXCLUDED_PIPELINE_IDS || [];
+    const ARCHIVED_PIPELINES = INACTIVE_PIPELINE_IDS || [];
 
     let scopeIds;
     if (isGestor) {
@@ -2733,7 +2740,7 @@ app.get('/api/gestor-dashboard', requireAuth, requireAdminOrGestor, async (req, 
     const cutoff7  = new Date(Date.now() - 7*24*60*60*1000);
 
     const EXCL = EXCLUDED_FROM_ANALYSIS || [];
-    const ARCHIVED = EXCLUDED_PIPELINE_IDS || [];
+    const ARCHIVED = INACTIVE_PIPELINE_IDS || [];
     const ownerIds = Object.keys(dict.userById || {}).map(Number).filter(id => !EXCL.includes(id));
     const ownerFilter = ownerIds.map(id => `OwnerId eq ${id}`).join(' or ');
     const creatorFilter = ownerIds.map(id => `CreatorId eq ${id}`).join(' or ');
@@ -2921,7 +2928,7 @@ app.get('/api/coaching-summaries/:userId', requireAuth, (req, res) => {
 });
 
 // ─── Diagnóstico de qualidade de dados do CRM ─────────────────────
-app.get('/api/data-quality', requireAuth, async (req, res) => {
+app.get('/api/data-quality', requireAuth, requireAdminOrGestor, async (req, res) => {
   try {
     const result = await computeDataQualityDiagnostic();
     res.json(result);
@@ -3192,6 +3199,12 @@ app.post('/api/sync-ploomes-users', requireAuth, async (req, res) => {
 
 // ─── Saúde do Funil ────────────────────────────────────────────
 const funnelHealthCache = new Map(); // key -> {data, ts}
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of funnelHealthCache) {
+    if (now - v.ts > FUNNEL_HEALTH_CACHE_TTL * 2) funnelHealthCache.delete(k);
+  }
+}, 10 * 60 * 1000);
 const FUNNEL_HEALTH_CACHE_TTL = 4 * 60 * 60 * 1000;
 app.get('/api/funnel-health', requireAuth, async (req, res) => {
   const role = req.session.role || 'vendedor';
@@ -4337,7 +4350,7 @@ async function detectAnomalies() {
     const startMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 
     const EXCL = EXCLUDED_FROM_ANALYSIS || [];
-    const ARCHIVED_PIPELINES = EXCLUDED_PIPELINE_IDS || [];
+    const ARCHIVED_PIPELINES = INACTIVE_PIPELINE_IDS || [];
     const ownerIds = Object.keys(dict.userById || {}).filter(id => !EXCL.includes(Number(id)));
     const ownerFilter = ownerIds.map(id => `OwnerId eq ${id}`).join(' or ');
     const creatorFilter = ownerIds.map(id => `CreatorId eq ${id}`).join(' or ');
@@ -4450,6 +4463,23 @@ if (require.main === module) {
   // ─── Engine de detecção de anomalias (a cada 6h) ──────────────────────
   setInterval(() => detectAnomalies(), 6 * 60 * 60 * 1000);
   setTimeout(() => detectAnomalies(), 2 * 60 * 1000);
+
+  // Limpeza periódica do fetch_cache
+  setInterval(() => {
+    try {
+      const deleted = db.prepare(`DELETE FROM fetch_cache WHERE expires_at <= CURRENT_TIMESTAMP`).run();
+      if (deleted.changes > 0) console.log(`[cache cleanup] ${deleted.changes} entradas expiradas removidas do fetch_cache`);
+    } catch(e) { console.warn('[cache cleanup error]', e.message); }
+  }, 60 * 60 * 1000);
+
+  // Retenção semanal de mensagens antigas (>90 dias)
+  setInterval(() => {
+    try {
+      const r1 = db.prepare(`DELETE FROM messages WHERE created_at < datetime('now', '-90 days')`).run();
+      const r2 = db.prepare(`DELETE FROM fetch_cache WHERE expires_at < datetime('now', '-7 days')`).run();
+      if (r1.changes || r2.changes) console.log(`[retention] messages: ${r1.changes} removidas, fetch_cache: ${r2.changes} removidas`);
+    } catch(e) { console.warn('[retention error]', e.message); }
+  }, 7 * 24 * 60 * 60 * 1000);
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[server] Ploomes Analyst rodando na porta ${PORT}`);

@@ -744,7 +744,7 @@ async function init(){
   try {
     document.getElementById('user-name').textContent = me.displayName || '—';
     document.getElementById('user-role').textContent = me.role || '—';
-  } catch {}
+  } catch (e) { console.warn('[init] user-name/role elements not found:', e.message); }
 
   // btnRefresh removido — atualização automática às 00h BRT
 

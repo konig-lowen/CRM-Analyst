@@ -202,8 +202,8 @@
         <span>Período:</span>
         <select id="period">
           <option value="month">Mês atual</option>
-          <option value="quarter" disabled title="Em breve">Trimestre (em breve)</option>
-          <option value="year" disabled title="Em breve">Ano (em breve)</option>
+          <option value="quarter">Trimestre atual</option>
+          <option value="year">Ano atual</option>
         </select>
         <button id="btnRefresh" onclick="forceRefresh()" style="display:none;padding:4px 10px;border-radius:6px;border:1px solid #d1d5db;background:#fff;cursor:pointer;font-size:12px">🔄 Atualizar</button>
       </div>
@@ -236,6 +236,7 @@
 <script>
 let me = null;
 let selectedUserId = null;
+let selectedPeriod = 'month';
 
 // ─── sessionStorage cache helpers ────────────────────────────
 const CACHE_TTL = 4 * 60 * 60 * 1000;
@@ -289,10 +290,13 @@ function breakdownText(b){
 }
 
 async function loadRanking(){
-  const rKey = `ranking_${selectedUserId||''}`;
+  const rKey = `ranking_${selectedUserId||''}_${selectedPeriod}`;
   const data = await cachedFetch(rKey, async () => {
-    const url = selectedUserId ? `/api/ranking?userId=${selectedUserId}` : '/api/ranking';
-    const r = await fetch(url);
+    const params = new URLSearchParams();
+    if (selectedUserId) params.set('userId', selectedUserId);
+    params.set('period', selectedPeriod);
+    const r = await fetch('/api/ranking?' + params.toString());
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
   });
 
@@ -328,7 +332,7 @@ async function init(){
   try {
     document.getElementById('user-name').textContent = me.displayName || '—';
     document.getElementById('user-role').textContent = me.role || '—';
-  } catch {}
+  } catch (e) { console.warn('[init] user elements:', e.message); }
   if (['admin','gestor'].includes(me.role)) {
     document.getElementById('btnRefresh').style.display = 'inline-block';
   }
@@ -337,6 +341,11 @@ async function init(){
     document.getElementById('vendorFloat').style.display = 'block';
     await loadVendors();
   }
+  // Ligar seletor de período
+  document.getElementById('period').addEventListener('change', (e) => {
+    selectedPeriod = e.target.value;
+    forceRefresh();
+  });
   await loadRanking();
 }
 

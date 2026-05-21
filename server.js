@@ -2228,9 +2228,9 @@ async function computeDashboard({ dict, allowedOwnerIds, allowedCreatorIds, targ
   };
 }
 
-async function computeRanking({ dict, scopeOwnerIds, scopeCreatorIds, scopeAppUserIds, year, month }) {
+async function computeRanking({ dict, scopeOwnerIds, scopeCreatorIds, scopeAppUserIds, year, month, periodStart }) {
   const now = new Date();
-  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
+  const start = periodStart || new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
   const startIso = isoNoZ(start);
   const cutoff30 = new Date(Date.now() - 30*24*60*60*1000);
 
@@ -2842,8 +2842,22 @@ app.get('/api/gestor-dashboard', requireAuth, requireAdminOrGestor, async (req, 
 app.get('/api/ranking', requireAuth, async (req, res) => {
   try {
     const now = new Date();
+    const period = req.query.period || 'month'; // month | quarter | year
     const year = req.query.year ? Number(req.query.year) : now.getUTCFullYear();
     const month = req.query.month ? Number(req.query.month) : (now.getUTCMonth() + 1);
+
+    // Calcular start conforme período
+    let periodStart;
+    if (period === 'quarter') {
+      const q = Math.floor((month - 1) / 3); // 0=Q1, 1=Q2, 2=Q3, 3=Q4
+      periodStart = new Date(Date.UTC(year, q * 3, 1, 0, 0, 0));
+    } else if (period === 'year') {
+      periodStart = new Date(Date.UTC(year, 0, 1, 0, 0, 0));
+    } else {
+      periodStart = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
+    }
+    const periodMonth = periodStart.getUTCMonth() + 1;
+    const periodYear = periodStart.getUTCFullYear();
 
     const dict = await loadDictionary();
 
@@ -2872,10 +2886,11 @@ app.get('/api/ranking', requireAuth, async (req, res) => {
       scopeOwnerIds: scopePloomesIds,
       scopeCreatorIds: scopePloomesIds,
       scopeAppUserIds,
-      year,
-      month,
+      year: periodYear,
+      month: periodMonth,
+      periodStart,
     });
-    res.json(data);
+    res.json({ ...data, period, periodLabel: period === 'quarter' ? `Q${Math.ceil(periodMonth/3)}/${periodYear}` : period === 'year' ? String(periodYear) : `${periodMonth.toString().padStart(2,'0')}/${periodYear}` });
   } catch (e) {
     console.error('[ranking]', e);
     res.status(500).json({ error: 'Erro interno. Tente novamente.' });

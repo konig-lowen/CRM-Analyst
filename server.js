@@ -2732,6 +2732,8 @@ app.get('/api/alerts', requireAuth, (req, res) => {
 // ─── GET /api/gestor-dashboard ────────────────────────────────
 app.get('/api/gestor-dashboard', requireAuth, requireAdminOrGestor, async (req, res) => {
   try {
+    const pipelineId = req.query.pipelineId ? Number(req.query.pipelineId) : null;
+    const pipelineFilter = pipelineId ? `%20and%20PipelineId%20eq%20${pipelineId}` : '';
     const dict = await loadDictionary();
     const now = new Date();
     const startMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -2746,14 +2748,14 @@ app.get('/api/gestor-dashboard', requireAuth, requireAdminOrGestor, async (req, 
     const creatorFilter = ownerIds.map(id => `CreatorId eq ${id}`).join(' or ');
 
     const [dealsOpen, dealsWonMonth, dealsLostMonth, interactionsWeek, tasksOpen] = await Promise.all([
-      ploomesGetAll(`/Deals?$select=Id,OwnerId,Title,Amount,LastUpdateDate,StatusId,PipelineId&$filter=StatusId%20eq%201%20and%20(${ownerFilter})`),
-      ploomesGetAll(`/Deals?$select=Id,OwnerId,Amount,FinishDate&$filter=StatusId%20eq%202%20and%20FinishDate%20ge%20${encodeURIComponent(startMonthIso)}%20and%20(${ownerFilter})`),
-      ploomesGetAll(`/Deals?$select=Id,OwnerId,Amount,FinishDate,LossReasonId&$filter=StatusId%20eq%203%20and%20FinishDate%20ge%20${encodeURIComponent(startMonthIso)}%20and%20(${ownerFilter})`),
+      ploomesGetAll(`/Deals?$select=Id,OwnerId,Title,Amount,LastUpdateDate,StatusId,PipelineId&$filter=StatusId%20eq%201${pipelineFilter}%20and%20(${ownerFilter})`),
+      ploomesGetAll(`/Deals?$select=Id,OwnerId,Amount,FinishDate&$filter=StatusId%20eq%202%20and%20FinishDate%20ge%20${encodeURIComponent(startMonthIso)}${pipelineFilter}%20and%20(${ownerFilter})`),
+      ploomesGetAll(`/Deals?$select=Id,OwnerId,Amount,FinishDate,LossReasonId&$filter=StatusId%20eq%203%20and%20FinishDate%20ge%20${encodeURIComponent(startMonthIso)}${pipelineFilter}%20and%20(${ownerFilter})`),
       ploomesGetAll(`/InteractionRecords?$select=Id,CreatorId,Date,TypeId&$filter=Date%20ge%20${encodeURIComponent(isoNoZ(cutoff7))}%20and%20(${creatorFilter})`),
       ploomesGetAll(`/Tasks?$select=Id,OwnerId,DateTime,Finished&$filter=Finished%20eq%20false%20and%20(${ownerFilter})`),
     ]);
 
-    const activeDeals = dealsOpen.filter(d => !ARCHIVED.includes(d.PipelineId));
+    const activeDeals = pipelineId ? dealsOpen : dealsOpen.filter(d => !ARCHIVED.includes(d.PipelineId));
 
     const byOwner = {};
     function ensureOwner(pid) {

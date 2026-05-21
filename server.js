@@ -2801,7 +2801,11 @@ app.get('/api/gestor-dashboard', requireAuth, requireAdminOrGestor, async (req, 
         }
       }
       if (r.dealsPerdidosMes > r.dealsGanhosMes * 3 && r.dealsPerdidosMes > 5) { risk += 15; r.actions.push(`⚠️ Taxa de conversão baixa este mês (${r.dealsGanhosMes}G / ${r.dealsPerdidosMes}P)`); }
-      r.riskScore = Math.min(100, risk);
+      // Bônus por performance positiva (balancear score)
+      if (r.dealsGanhosMes >= 3) risk -= 15;
+      if (r.interacoes7d >= 10) risk -= 10;
+      if (r.receitaGanhaMes > 50000) risk -= 10;
+      r.riskScore = Math.max(0, Math.min(100, risk));
     }
 
     const criticalAlerts = db.prepare(`
@@ -2819,7 +2823,15 @@ app.get('/api/gestor-dashboard', requireAuth, requireAdminOrGestor, async (req, 
       tarefasVencidas: Object.values(byOwner).reduce((s,r) => s + r.tarefasVencidas, 0),
     };
 
-    const vendedores = Object.values(byOwner).sort((a,b) => b.riskScore - a.riskScore || b.receitaGanhaMes - a.receitaGanhaMes);
+    const vendedores = Object.values(byOwner)
+      .map(r => ({
+        ...r,
+        ganhosMes: r.dealsGanhosMes,
+        receitaMes: r.receitaGanhaMes,
+        dealsParados: r.dealsPardos30d,
+        metaPct: r.metaProgress != null ? Math.round(r.metaProgress * 100) : null,
+      }))
+      .sort((a,b) => b.riskScore - a.riskScore || b.receitaGanhaMes - a.receitaGanhaMes);
     res.json({ teamTotals, vendedores, criticalAlerts, generatedAt: now.toISOString() });
   } catch (e) {
     console.error('[gestor-dashboard]', e.message);

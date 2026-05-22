@@ -1,0 +1,60 @@
+Você é um auditor e desenvolvedor sênior. Faça uma auditoria COMPLETA do SPA em /opt/ploomes-analyst/app.html.
+
+## ETAPAS OBRIGATÓRIAS:
+
+### 1. TESTE FUNCIONAL VIA CURL/NODE
+Rode um script Node.js para fazer login e testar cada endpoint que o SPA usa:
+- Login: POST http://localhost:3001/login (paulovictor@vetorv.com.br / Paulo@2025)
+- GET /api/me
+- GET /api/pipelines-active
+- GET /api/ploomes-users  
+- GET /api/dashboard
+- GET /api/funnel-health
+- GET /api/crm-health
+- GET /api/ranking
+
+Para cada um, mostrar: status HTTP + primeiros 200 chars da resposta.
+
+### 2. AUDITORIA DO CÓDIGO app.html
+Leia o app.html e verifique CADA ITEM abaixo. Para cada item: verificar o código real e reportar SIM ✅ ou NÃO ❌ com linha do arquivo:
+
+**Dashboard (renderDashboard):**
+□ pipelineId passado para /api/dashboard
+□ ploomesId passado para /api/dashboard  
+□ pipelineId passado para /api/funnel-health
+□ ploomesId passado para /api/funnel-health
+□ pipelineId passado para /api/crm-health
+□ ploomesId passado para /api/crm-health
+□ loadPipelines() independente (não dentro de loadVendors())
+□ Catches com console.error (não silenciosos)
+□ XSS: alertas escapados (não innerHTML direto)
+
+**Ranking (renderRanking):**
+□ pipelineId passado para /api/ranking
+□ userId passado para /api/ranking
+□ Período Trimestre funcionando (não disabled)
+□ Período Ano funcionando (não disabled)
+
+**Coach (renderCoach):**
+□ vendorSelect popula com usuários Ploomes
+□ Seleção de vendedor envia ploomesId para /api/chat/coach
+□ Dados do vendedor selecionado aparecem no painel
+
+**Nav/Gestão:**
+□ Link "Gestão" presente no nav HTML
+□ Link "Gestão" visível apenas para admin/gestor (setSidebarMe)
+□ renderGestor carrega sem iframe
+
+**Cache de Filtros:**
+□ TTL de vendors/pipelines ≤ 2 minutos
+
+### 3. CORREÇÕES
+Para CADA item ❌ encontrado: faça a correção diretamente no /opt/ploomes-analyst/app.html usando Bash/sed/node.
+
+### 4. APÓS CORREÇÕES
+- Verificar sintaxe do JS no app.html (node -e com um quick check)
+- Reiniciar servidor: systemctl restart ploomes-analyst
+- Re-testar os endpoints via curl
+
+### 5. RELATÓRIO FINAL
+Liste tudo que foi encontrado e corrigido, com evidências.

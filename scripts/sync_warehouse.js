@@ -452,7 +452,7 @@ async function main() {
     // Reference tables
     const [users, pipelines, stages, lossReasons] = await Promise.all([
       ploomesGetAll('/Users?$select=Id,Name,Email,Suspended,Integration'),
-      ploomesGetAll('/Deals@Pipelines?$select=Id,Name'),
+      ploomesGetAll('/Deals@Pipelines?$select=Id,Name,Archived'),
       ploomesGetAll('/Deals@Stages?$select=Id,Name,PipelineId'),
       ploomesGetAll('/Deals@LossReasons?$select=Id,Name'),
     ]);
@@ -469,7 +469,8 @@ async function main() {
     upsertMany(db, 'pipelines', (pipelines||[]).map(p => ({
       id: Number(p.Id),
       name: p.Name || null,
-      archived: INACTIVE_PIPELINE_IDS.includes(Number(p.Id)) ? 1 : 0,
+      // Usar o campo Archived da API Ploomes como fonte primária; INACTIVE_PIPELINE_IDS como fallback
+      archived: (p.Archived === true || p.Archived === 1 || INACTIVE_PIPELINE_IDS.includes(Number(p.Id))) ? 1 : 0,
       updated_at: updatedAt,
     })), ['id','name','archived','updated_at']);
     upsertMany(db, 'stages', (stages||[]).map(s => ({

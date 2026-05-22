@@ -490,6 +490,7 @@
       <a href="#chat" class="nav-link" data-view="chat"><span class="nav-icon">💬</span> Chat</a>
       <a href="#coach" class="nav-link" data-view="coach"><span class="nav-icon">🎯</span> Coach AI</a>
       <a href="#dashboard" class="nav-link" data-view="dashboard"><span class="nav-icon">📈</span> Dashboard</a>
+      <a href="#gestor" class="nav-link" id="gestorNavLink" data-view="gestor" style="display:none"><span class="nav-icon">📊</span> Gestão</a>
       <a href="#ranking" class="nav-link" data-view="ranking"><span class="nav-icon">🏆</span> Ranking</a>
       <a href="#reports" class="nav-link" id="reportsNavLink" data-view="reports" style="display:none"><span class="nav-icon">📄</span> Relatórios</a>
       <a href="#admin" class="nav-link" id="adminNavLink" data-view="admin" style="display:none"><span class="nav-icon">⚙️</span> Usuários</a>
@@ -567,11 +568,10 @@ const appState = {
 async function bootstrapApp() {
   const me = await appCache.get('me', () => fetch('/api/me').then(r => r.json()));
   appState.me = me;
-  // preload without blocking
-  appCache.get('dashboard', () => fetch('/api/dashboard').then(r => r.json())).catch(()=>{});
-  appCache.get('crmHealth', () => fetch('/api/crm-health').then(r => r.json())).catch(()=>{});
-  appCache.get('pipelines', () => fetch('/api/pipelines-active').then(r => r.json())).catch(()=>{});
-  appCache.get('vendors', () => fetch('/api/ploomes-users').then(r => r.json())).catch(()=>{});
+  // preload without blocking — usa safeFetch para não cachear erros
+  const safeFetch = (url) => fetch(url).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(d => Array.isArray(d) ? d : (d && !d.error ? d : Promise.reject('bad')));
+  appCache.get('pipelines', () => safeFetch('/api/pipelines-active'), 2 * 60 * 1000).catch(()=>{});
+  appCache.get('vendors', () => safeFetch('/api/ploomes-users'), 2 * 60 * 1000).catch(()=>{});
 }
 
 function setSidebarMe() {
@@ -585,6 +585,9 @@ function setSidebarMe() {
 
   // Admin view
   if (isAdminOrGestor) document.getElementById('adminNavLink').style.display = 'flex';
+
+  // Gestão: apenas admin/gestor
+  if (isAdminOrGestor) document.getElementById('gestorNavLink').style.display = 'flex';
 
   // Reports: block for vendedor (server already redirects too)
   if (isAdminOrGestor || isSupervisor) document.getElementById('reportsNavLink').style.display = 'flex';
@@ -609,6 +612,7 @@ const router = {
   routes: {
     'chat': renderChat,
     'dashboard': renderDashboard,
+    'gestor': renderGestor,
     'ranking': renderRanking,
     'reports': renderReports,
     'coach': renderCoach,
@@ -1093,22 +1097,32 @@ async function renderDashboard(root) {
     if (e.target === document.getElementById('hygieneModal')) closeHygieneModal();
   });
 
+  // TTL curto para funis e vendedores (2 min) — reflete criação/desativação rapidamente
+  const FILTERS_TTL = 2 * 60 * 1000;
+
   async function loadVendorsAndPipelines(){
+    // Funis: todos os usuários autenticados, independente de role
+    try {
+      const pipelines = await appCache.get('pipelines', () => fetch('/api/pipelines-active').then(r => r.json()), FILTERS_TTL);
+      const psel = document.getElementById('pipelineSelect');
+      if (psel) {
+        psel.innerHTML = '<option value="">(Todos os funis)</option>' + pipelines.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        psel.value = st.selectedPipelineId ? String(st.selectedPipelineId) : '';
+        psel.onchange = () => { st.selectedPipelineId = psel.value ? Number(psel.value) : null; loadAll(); };
+      }
+    } catch(e) { console.error('[app] Erro ao carregar funis:', e); }
+
+    // Vendedores: apenas admin/gestor/supervisor
     if (!['admin','gestor','supervisor'].includes(me.role)) return;
     document.getElementById('vendorBar').style.display = 'flex';
-
-    const users = await appCache.get('vendors', () => fetch('/api/ploomes-users').then(r => r.json()), ttl);
-    const sel = document.getElementById('vendorSelect');
-    const defaultLabel = (me.role === 'supervisor') ? '(Minha equipe)' : '(Todos os vendedores)';
-    sel.innerHTML = `<option value="">${defaultLabel}</option>` + users.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
-    sel.value = st.selectedUserId ? String(st.selectedUserId) : '';
-    sel.onchange = () => { st.selectedUserId = sel.value ? Number(sel.value) : null; loadAll(); };
-
-    const pipelines = await appCache.get('pipelines', () => fetch('/api/pipelines-active').then(r => r.json()), ttl);
-    const psel = document.getElementById('pipelineSelect');
-    psel.innerHTML = '<option value="">(Todos os funis)</option>' + pipelines.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-    psel.value = st.selectedPipelineId ? String(st.selectedPipelineId) : '';
-    psel.onchange = () => { st.selectedPipelineId = psel.value ? Number(psel.value) : null; loadAll(); };
+    try {
+      const users = await appCache.get('vendors', () => fetch('/api/ploomes-users').then(r => r.json()), FILTERS_TTL);
+      const sel = document.getElementById('vendorSelect');
+      const defaultLabel = (me.role === 'supervisor') ? '(Minha equipe)' : '(Todos os vendedores)';
+      sel.innerHTML = `<option value="">${defaultLabel}</option>` + users.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+      sel.value = st.selectedUserId ? String(st.selectedUserId) : '';
+      sel.onchange = () => { st.selectedUserId = sel.value ? Number(sel.value) : null; loadAll(); };
+    } catch(e) { console.error('[app] Erro ao carregar vendedores:', e); }
   }
 
   async function loadDashboard(){
@@ -1123,6 +1137,7 @@ async function renderDashboard(root) {
     }, ttl);
 
     document.getElementById('k1').textContent = d.dealsAbertos ?? '—';
+    document.getElementById('k1s').textContent = d.receitaAberta != null ? moneyBR(d.receitaAberta) : '—';
     document.getElementById('k2').textContent = moneyBR(d.ganhosMs?.valor || 0);
     document.getElementById('k2s').textContent = `${d.ganhosMs?.count || 0} ganho(s)`;
 
@@ -1132,6 +1147,7 @@ async function renderDashboard(root) {
     document.getElementById('k3s').textContent = topInter || '—';
 
     document.getElementById('k4').textContent = d.tarefasVencidas ?? '—';
+    document.getElementById('k4s').textContent = d.tarefasAbertas != null ? `${d.tarefasAbertas} em aberto` : '—';
     document.getElementById('score').textContent = `Score CRM: ${d.scorecrm ?? '—'}`;
     document.getElementById('scorecrm') && (document.getElementById('scorecrm').textContent = `Score CRM: ${d.scorecrm ?? '—'}`);
     document.getElementById('updated').textContent = `Dados: ${new Date().toLocaleString('pt-BR')}`;
@@ -1171,11 +1187,12 @@ async function renderDashboard(root) {
 
     const params = new URLSearchParams();
     if (st.selectedPipelineId) params.set('pipelineId', st.selectedPipelineId);
+    if (st.selectedUserId) params.set('ploomesId', st.selectedUserId);
 
     let data = await appCache.get(getKey('funnelHealth'), async () => {
       const r = await fetch('/api/funnel-health' + (params.toString() ? '?' + params.toString() : ''));
       return r.json();
-    }, ttl);
+    }, FILTERS_TTL);
 
     st.funnelData = data;
 
@@ -1228,18 +1245,22 @@ async function renderDashboard(root) {
     section.style.display = 'block';
 
     const data = await appCache.get(getKey('crmHygiene'), async () => {
-      const r = await fetch('/api/crm-health');
+      const params = new URLSearchParams();
+      if (st.selectedPipelineId) params.set('pipelineId', st.selectedPipelineId);
+      if (st.selectedUserId) params.set('ploomesId', st.selectedUserId);
+      const url = '/api/crm-health' + (params.toString() ? '?' + params.toString() : '');
+      const r = await fetch(url);
       return r.json();
-    }, ttl);
+    }, FILTERS_TTL);
 
     if (data.error) { grid.innerHTML = `<div class="item">Erro: ${escapeHtml(data.error)}</div>`; return; }
 
     st.hygieneData = data.vendors || [];
     let vendors = st.hygieneData;
 
-    if (me.role === 'supervisor') {
+    if (me.role === 'supervisor' && !st.selectedUserId) {
       const allowed = await fetch('/api/ploomes-users').then(r => r.json());
-      const allowedIds = new Set((allowed||[]).map(u => u.ploomesUserId || u.ploomes_user_id || u.id));
+      const allowedIds = new Set((allowed||[]).map(u => u.id || u.ploomesUserId || u.ploomes_user_id));
       vendors = vendors.filter(v => allowedIds.has(v.ownerId));
     }
 
@@ -1374,6 +1395,17 @@ async function renderRanking(root) {
             <option value="year">Ano (YTD)</option>
           </select>
           <button id="btnRefresh" style="display:none"></button>
+        </div>
+      </header>
+
+      <div class="vendor-bar" id="rankFiltersBar" style="display:none">
+        <label for="rankVendorSelect">👁️ Vendedor:</label>
+        <select id="rankVendorSelect"><option value="">(Todos os vendedores)</option></select>
+        <label for="rankPipelineSelect" style="margin-left:1rem">📂 Funil:</label>
+        <select id="rankPipelineSelect"><option value="">(Todos os funis)</option></select>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:12px;padding:16px;flex:1;overflow:auto">
         <div id="rankStatus" class="muted" style="margin:8px 0 14px;display:none"></div>
         <div class="top3" id="top3" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px"></div>
 
@@ -1396,6 +1428,39 @@ async function renderRanking(root) {
 
   const me = appState.me;
   const ttl = 4 * 60 * 60 * 1000;
+  const RANK_FILTERS_TTL = 2 * 60 * 1000;
+
+  // Estado dos filtros do ranking
+  const rankSt = { selectedUserId: null, selectedPipelineId: null };
+
+  // Carregar filtros de vendedor e funil (apenas admin/gestor/supervisor)
+  const isAdminOrGestor = me && ['admin','gestor','supervisor'].includes(me.role);
+  if (isAdminOrGestor) {
+    const bar = document.getElementById('rankFiltersBar');
+    if (bar) bar.style.display = 'flex';
+
+    // Funis
+    appCache.get('pipelines', () => fetch('/api/pipelines-active').then(r => r.json()), RANK_FILTERS_TTL)
+      .then(pipelines => {
+        const psel = document.getElementById('rankPipelineSelect');
+        if (psel && Array.isArray(pipelines)) {
+          psel.innerHTML = '<option value="">(Todos os funis)</option>' +
+            pipelines.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+          psel.onchange = () => { rankSt.selectedPipelineId = psel.value ? Number(psel.value) : null; loadRanking(); };
+        }
+      }).catch(() => {});
+
+    // Vendedores
+    appCache.get('vendors', () => fetch('/api/ploomes-users').then(r => r.json()), RANK_FILTERS_TTL)
+      .then(vendors => {
+        const vsel = document.getElementById('rankVendorSelect');
+        if (vsel && Array.isArray(vendors)) {
+          vsel.innerHTML = '<option value="">(Todos os vendedores)</option>' +
+            vendors.map(v => `<option value="${v.id}">${escapeHtml(v.name)}</option>`).join('');
+          vsel.onchange = () => { rankSt.selectedUserId = vsel.value ? Number(vsel.value) : null; loadRanking(); };
+        }
+      }).catch(() => {});
+  }
 
   function medal(i){ return i===1?'🥇':i===2?'🥈':i===3?'🥉':''; }
 
@@ -1476,7 +1541,7 @@ async function renderRanking(root) {
 
   async function loadRanking(){
     const { period, year, month } = getPeriodQuery();
-    const cacheKey = `ranking_${period}_${year || ''}_${month || ''}`;
+    const cacheKey = `ranking_${period}_${year || ''}_${month || ''}_${rankSt.selectedUserId||''}_${rankSt.selectedPipelineId||''}`;
 
     setStatus('info', 'Carregando ranking…');
     document.getElementById('top3').innerHTML = '';
@@ -1488,6 +1553,8 @@ async function renderRanking(root) {
       if (period) qs.set('period', period);
       if (year) qs.set('year', String(year));
       if (month) qs.set('month', String(month));
+      if (rankSt.selectedUserId) qs.set('userId', String(rankSt.selectedUserId));
+      if (rankSt.selectedPipelineId) qs.set('pipelineId', String(rankSt.selectedPipelineId));
       const url = '/api/ranking' + (qs.toString() ? ('?' + qs.toString()) : '');
       data = await appCache.get(cacheKey, () => fetch(url).then(async r => {
         const j = await r.json().catch(() => ({}));
@@ -1562,7 +1629,7 @@ async function renderReports(root) {
   root.style.overflow = 'hidden';
   root.innerHTML = `
     <div style="height:100vh;display:flex;flex-direction:column;min-width:0">
-      <header style="grid-template-columns:1fr auto;display:flex;justify-content:space-between;align-items:center">
+      <header style="display:flex;justify-content:space-between;align-items:center">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <h1 style="font-size:16px;font-weight:700">Relatórios</h1>
           <span class="pill" id="who">—</span>
@@ -1570,11 +1637,14 @@ async function renderReports(root) {
         <div style="display:flex;align-items:center;gap:10px">
           <div class="muted" id="hint">Selecione um vendedor à esquerda.</div>
           <button id="btnRefresh" style="display:none"></button>
+        </div>
+      </header>
+      <div style="display:flex;flex:1;min-height:0">
         <div class="panel">
           <div class="search"><input id="q" placeholder="Buscar vendedor..." /></div>
           <div id="list">Carregando...</div>
         </div>
-        <div class="panel">
+        <div class="panel" style="flex:1">
           <div id="detail" class="muted">Carregando...</div>
         </div>
       </div>
@@ -1912,21 +1982,656 @@ async function renderCoach(root) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// View: Admin (iframe to existing admin page to preserve full logic)
+// ─────────────────────────────────────────────────────────────
+// View: Admin (integrado nativamente — sem iframe)
 // ─────────────────────────────────────────────────────────────
 async function renderAdmin(root) {
   const me = appState.me;
   if (!me || !['admin','gestor'].includes(me.role)) {
-    root.innerHTML = `<div style="padding:24px"><div class="card"><div class="k">Acesso negado</div><div class="v" style="font-size:16px">Você não tem permissão para ver esta página.</div></div></div>`;
+    root.innerHTML = `<div style="padding:24px"><div class="card"><div class="k">Acesso negado</div></div></div>`;
     return;
   }
-  // To keep 100% existing behavior without duplicating huge JS, embed the existing page.
-  // This respects the rule of not touching existing HTML and maintains current logic.
-  root.innerHTML = `
-    <div style="height:100vh">
-      <iframe src="/admin" style="width:100%;height:100%;border:0;background:var(--bg)"></iframe>
-    </div>
-  `;
+  if (!document.getElementById('admin-native-styles')) {
+    const s = document.createElement('style'); s.id = 'admin-native-styles';
+    s.textContent = "\n  :root {\n    --bg: #F8F9FA;\n    --surface: #FFFFFF;\n    --border: #E5E7EB;\n    --text: #111827;\n    --muted: #6B7280;\n    --accent: #4F46E5;\n    --accent-hover: #4338CA;\n    --accent-light: #EEF2FF;\n    --success: #059669;\n    --success-light: #ECFDF5;\n    --warning: #D97706;\n    --warning-light: #FFFBEB;\n    --danger: #DC2626;\n    --danger-light: #FEF2F2;\n    --sidebar-w: 220px;\n    --radius: 8px;\n    --radius-lg: 12px;\n    --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);\n    --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.04);\n  }\n\n  *{box-sizing:border-box;margin:0;padding:0}\n  body{\n    font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;\n    background:var(--bg);\n    color:var(--text);\n    min-height:100vh;\n    font-size:14px;\n    line-height:1.5;\n  }\n\n  .sidebar {\n    width: var(--sidebar-w);\n    background: var(--surface);\n    border-right: 1px solid var(--border);\n    box-shadow: 2px 0 8px rgba(0,0,0,0.04);\n    display: flex;\n    flex-direction: column;\n    height: 100vh;\n    position: fixed;\n    left: 0; top: 0;\n    z-index: 10;\n    padding: 0;\n  }\n  .brand { display:flex; align-items:center; gap:10px; padding: 18px 16px; border-bottom: 1px solid var(--border); }\n  .brand-icon { font-size: 22px; }\n  .brand-name { font-weight: 700; font-size: 15px; color: var(--text); }\n  .brand-sub { font-size: 11px; color: var(--muted); }\n  .nav { flex:1; padding: 12px 8px; display:flex; flex-direction:column; gap: 2px; }\n  .nav-link { display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius: 8px; color: var(--muted); text-decoration:none; font-size:14px; font-weight:500; transition: all .15s; }\n  .nav-link:hover { background: var(--accent-light); color: var(--accent); }\n  .nav-link.active { background: var(--accent-light); color: var(--accent); font-weight: 600; }\n  .nav-icon { font-size: 16px; width: 20px; text-align:center; }\n  .sidebar-footer { padding: 12px 16px; border-top: 1px solid var(--border); display:flex; flex-direction:column; gap:8px; }\n  #user-name { font-size: 13px; font-weight: 600; color: var(--text); }\n  #user-role { font-size: 11px; color: var(--muted); }\n\n  .btn{\n    border: 1px solid transparent;\n    border-radius: var(--radius);\n    padding: 10px 12px;\n    font-weight: 600;\n    font-size: 13px;\n    cursor: pointer;\n    transition: all .15s;\n  }\n  .btn-primary{background:var(--accent);color:#fff}\n  .btn-primary:hover{background:var(--accent-hover)}\n  .btn-outline{background:var(--surface);border-color:#D1D5DB;color:#374151}\n  .btn-outline:hover{background:#F9FAFB}\n  .btn-sm{padding:7px 10px;font-size:12px;border-radius:8px}\n\n  .main{margin-left:var(--sidebar-w);min-height:100vh;display:flex;flex-direction:column}\n\n  header{\n    background:var(--surface);\n    border-bottom:1px solid var(--border);\n    padding:12px 20px;\n    display:flex;\n    align-items:center;\n    justify-content:space-between;\n    gap:12px;\n  }\n  header h1{font-size:16px;font-weight:700}\n  .header-right{display:flex;gap:10px;align-items:center}\n\n  .container{max-width:1100px;margin:22px auto;padding:0 20px;width:100%}\n\n  .tabs{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}\n  .tab{\n    padding:10px 12px;\n    border-radius:12px;\n    border:1px solid var(--border);\n    background:var(--surface);\n    color:#374151;\n    cursor:pointer;\n    font-size:13px;\n    font-weight:600;\n  }\n  .tab.active{background:var(--accent-light);border-color:rgba(79,70,229,0.35);color:var(--accent)}\n\n  .panel{display:none}\n  .panel.active{display:block}\n\n  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:var(--shadow)}\n  .card h2{font-size:14px;margin-bottom:12px;font-weight:700}\n\n  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}\n  label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}\n  input, select{\n    background:var(--surface);\n    color:var(--text);\n    border:1px solid #D1D5DB;\n    border-radius:10px;\n    padding:10px;\n    outline:none;\n  }\n  input:focus, select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(79,70,229,0.1)}\n  input{min-width:200px}\n\n  table{width:100%;border-collapse:collapse}\n  th,td{padding:10px 10px;border-bottom:1px solid var(--border);font-size:13px;text-align:left}\n  th{color:#374151;font-size:12px;text-transform:uppercase;letter-spacing:.06em;background:#F9FAFB}\n  tr:last-child td{border-bottom:none}\n\n  .badge{display:inline-block;padding:3px 10px;border-radius:999px;border:1px solid var(--border);font-size:12px;background:#F9FAFB;color:#374151}\n\n  .role-badge{border:none;font-weight:700}\n  .role-admin{background:var(--danger-light);color:var(--danger)}\n  .role-gestor{background:var(--warning-light);color:var(--warning)}\n  .role-supervisor{background:rgba(59,130,246,0.12);color:#2563EB}\n  .role-vendedor{background:#F3F4F6;color:#6B7280}\n\n  .msg{padding:10px 12px;border-radius:12px;border:1px solid var(--border);margin-bottom:12px;display:none}\n  .ok{border-color:#A7F3D0;background:var(--success-light);color:var(--success)}\n  .err{border-color:#FECACA;background:var(--danger-light);color:var(--danger)}\n  .muted{color:var(--muted);font-size:13px}\n\n  pre{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace}\n\n  @media (max-width: 920px){\n    input{min-width:unset;width:100%}\n    .row>div{width:100%}\n  }\n";
+    document.head.appendChild(s);
+  }
+  root.style.overflow = 'auto';
+  root.innerHTML = "<div class=\"main\">\n    <header>\n      <h1>Usuários</h1>\n      <div class=\"header-right\">\n        <a class=\"btn btn-outline btn-sm\" href=\"#chat\" onclick=\"event.preventDefault();router.navigate('chat')\">← Chat</a>\n      </div>\n    </header>\n\n    <div class=\"container\">\n      <div id=\"msg\" class=\"msg\"></div>\n\n      <div class=\"tabs\">\n        <button class=\"tab active\" data-tab=\"users\">Usuários</button>\n        <button class=\"tab\" data-tab=\"teams\">Equipes</button>\n        <button class=\"tab\" data-tab=\"goals\">Metas</button>\n        <button class=\"tab\" data-tab=\"history\">Histórico</button>\n        <button class=\"tab\" data-tab=\"reports\">Relatórios</button>\n      </div>\n\n      <div class=\"panel active\" id=\"panel-users\">\n        <div class=\"card\">\n          <h2>Criar usuário</h2>\n          <div class=\"row\">\n            <div>\n              <label>E-mail (login)</label>\n              <input id=\"new-username\" placeholder=\"ex: vendedor@vetorv.com.br\" />\n            </div>\n            <div>\n              <label>Nome</label>\n              <input id=\"new-display\" placeholder=\"Nome do usuário\" />\n            </div>\n            <div>\n              <label>Role</label>\n              <select id=\"new-role\">\n                <option value=\"vendedor\">vendedor</option>\n                <option value=\"supervisor\">supervisor</option>\n                <option value=\"gestor\">gestor</option>\n                <option value=\"admin\">admin</option>\n              </select>\n            </div>\n            <div>\n              <label>Ploomes (auto por e-mail; fallback opcional)</label>\n              <select id=\"new-ploomes-select\">\n                <option value=\"\">(auto / não preencher)</option>\n              </select>\n              <div class=\"muted\" style=\"margin-top:6px\">Se o e-mail não existir no Ploomes, escolha aqui (somente se necessário).</div>\n            </div>\n            <div>\n              <label>Senha</label>\n              <input id=\"new-password\" type=\"password\" placeholder=\"mínimo 8 caracteres\" minlength=\"8\" />\n            </div>\n            <button class=\"btn btn-primary\" onclick=\"createUser()\">Criar</button>\n          </div>\n          <div class=\"muted\" style=\"margin-top:10px\">Dica: o sistema tenta vincular automaticamente pelo e-mail. O dropdown é apenas fallback (lista usuários Ploomes ativos).</div>\n        </div>\n\n        <div class=\"card\">\n          <h2>Usuários cadastrados</h2>\n          <table>\n            <thead>\n              <tr>\n                <th>E-mail</th>\n                <th>Nome</th>\n                <th>Role</th>\n                <th>Ploomes</th>\n                <th>Status</th>\n                <th>Ações</th>\n              </tr>\n            </thead>\n            <tbody id=\"users-table\">\n              <tr><td colspan=\"6\">Carregando...</td></tr>\n            </tbody>\n          </table>\n        </div>\n      </div>\n\n      <div class=\"panel\" id=\"panel-teams\">\n        <div class=\"card\">\n          <h2>Criar equipe</h2>\n          <div class=\"row\">\n            <div>\n              <label>Nome da equipe</label>\n              <input id=\"team-name\" placeholder=\"ex: Time Sul\" />\n            </div>\n            <div>\n              <label>Supervisor (app_user_id)</label>\n              <input id=\"team-supervisor\" placeholder=\"ex: 3\" />\n            </div>\n            <button class=\"btn btn-primary\" onclick=\"createTeam()\">Criar</button>\n          </div>\n        </div>\n\n        <div class=\"card\">\n          <h2>Equipes e membros</h2>\n          <div class=\"muted\" style=\"margin-bottom:10px\">Vincule membros via: selecionar equipe e informar app_user_id.</div>\n          <div class=\"row\">\n            <div>\n              <label>Equipe</label>\n              <select id=\"team-select\"></select>\n            </div>\n            <div>\n              <label>Adicionar membro (app_user_id)</label>\n              <input id=\"team-member\" placeholder=\"ex: 5\" />\n            </div>\n            <button class=\"btn btn-outline\" onclick=\"addMember()\">Adicionar</button>\n          </div>\n\n          <div style=\"margin-top:12px\" class=\"muted\" id=\"teamsDump\">Carregando...</div>\n        </div>\n      </div>\n\n      <div class=\"panel\" id=\"panel-goals\">\n        <div class=\"card\">\n          <h2>Definir meta</h2>\n          <div class=\"row\">\n            <div><label>Vendedor (app_user_id)</label><input id=\"g-user\" placeholder=\"ex: 5\" /></div>\n            <div><label>Ano</label><input id=\"g-year\" placeholder=\"2026\" /></div>\n            <div><label>Mês</label><input id=\"g-month\" placeholder=\"5\" /></div>\n            <div><label>Valor mensal (R$)</label><input id=\"g-valor\" placeholder=\"100000\" /></div>\n            <div><label>Interações semana</label><input id=\"g-inter\" placeholder=\"50\" /></div>\n            <button class=\"btn btn-primary\" onclick=\"saveGoal()\">Salvar</button>\n          </div>\n          <div class=\"muted\" style=\"margin-top:10px\">Metas completas (funil/semana/dia) podem ser expandidas — este formulário cobre o essencial.</div>\n        </div>\n\n        <div class=\"card\">\n          <h2>Metas do mês</h2>\n          <div class=\"row\">\n            <div><label>Ano</label><input id=\"gq-year\" placeholder=\"2026\" /></div>\n            <div><label>Mês</label><input id=\"gq-month\" placeholder=\"5\" /></div>\n            <div><label>Filtro user_id (opcional)</label><input id=\"gq-user\" placeholder=\"ex: 5\" /></div>\n            <button class=\"btn btn-outline\" onclick=\"loadGoals()\">Carregar</button>\n          </div>\n          <div style=\"margin-top:12px\" id=\"goalsDump\" class=\"muted\">—</div>\n        </div>\n      </div>\n\n      <div class=\"panel\" id=\"panel-history\">\n        <div class=\"card\">\n          <h2>Histórico de chats e coaching</h2>\n          <div class=\"row\">\n            <div><label>Usuário (app_user_id)</label><input id=\"h-user\" placeholder=\"ex: 5\" /></div>\n            <button class=\"btn btn-outline\" onclick=\"loadHistoryUser()\">Ver chat</button>\n            <button class=\"btn btn-outline\" onclick=\"loadCoachUser()\">Ver coaching</button>\n          </div>\n          <pre id=\"historyDump\" style=\"margin-top:12px;white-space:pre-wrap; background:#F9FAFB; border:1px solid var(--border); padding:12px; border-radius:12px; max-height:420px; overflow:auto\">—</pre>\n        </div>\n      </div>\n\n      <div class=\"panel\" id=\"panel-reports\">\n        <div class=\"card\">\n          <h2>Relatórios Executivos</h2>\n          <p style=\"color:var(--text-secondary);font-size:14px;margin:0 0 16px\">Gera um relatório HTML com conversão, pipeline e higiene a partir do warehouse. Somente admins podem acessar.</p>\n          <button class=\"btn btn-primary\" onclick=\"generateReport()\" id=\"btn-gen-report\">📈 Gerar Relatório Executivo</button>\n          <div id=\"report-gen-status\" style=\"margin-top:10px;font-size:14px\"></div>\n        </div>\n        <div class=\"card\" style=\"margin-top:16px\">\n          <h2>Relatórios Gerados</h2>\n          <button class=\"btn btn-outline btn-sm\" onclick=\"loadReports()\" style=\"margin-bottom:12px\">🔄 Atualizar lista</button>\n          <div id=\"reports-list\"><em style=\"color:var(--text-secondary)\">Carregando...</em></div>\n        </div>\n      </div>\n    </div>\n  </div>";
+  (function adminScope() {
+    function showMsg(text, ok){
+  const el=document.getElementById('msg');
+  el.textContent=text;
+  el.className='msg '+(ok?'ok':'err');
+  el.style.display='block';
+  setTimeout(()=>el.style.display='none', 4500);
+}
+
+for (const b of document.querySelectorAll('.tab')) {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    document.getElementById('panel-'+b.dataset.tab).classList.add('active');
+    if (b.dataset.tab === 'reports') loadReports();
+  });
+}
+
+async function loadUsers() {
+  const r=await fetch('/api/admin/users');
+  const users=await r.json();
+  const tbody=document.getElementById('users-table');
+  tbody.innerHTML = users.map(u=>{
+    const role = (u.role||'').toLowerCase();
+    const roleCls = role==='admin'?'role-admin':role==='gestor'?'role-gestor':role==='supervisor'?'role-supervisor':'role-vendedor';
+    return `
+    <tr>
+      <td><strong>${u.username}</strong></td>
+      <td>${u.display_name||'—'}</td>
+      <td><span class="badge role-badge ${roleCls}">${u.role||'—'}</span></td>
+      <td>${u.ploomes_user_id||'—'}</td>
+      <td><span class="badge">${u.active?'Ativo':'Inativo'}</span></td>
+      <td>
+        <button class="btn btn-outline btn-sm" onclick="toggleActive(${u.id}, ${u.active?0:1})">${u.active?'Desativar':'Ativar'}</button>
+        <button class="btn btn-outline btn-sm" onclick="editUser(${u.id})">Editar</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function createUser(){
+  const plSel = document.getElementById('new-ploomes-select');
+  const plInput = document.getElementById('new-ploomes');
+  const ploomes_user_id = (plInput ? (plInput.value||'').trim() : '') || (plSel ? (plSel.value||'').trim() : '');
+  const pwd = document.getElementById('new-password').value;
+  if (pwd.length < 8) return showMsg('Senha deve ter no mínimo 8 caracteres.', false);
+  const body={
+    username: document.getElementById('new-username').value.trim().toLowerCase(),
+    password: pwd,
+    role: document.getElementById('new-role').value,
+    display_name: document.getElementById('new-display').value.trim(),
+    ploomes_user_id,
+  };
+  const r=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();
+  if(d.error) return showMsg(d.error,false);
+  if(d.warning) showMsg(d.warning, false);
+  else if(d.ploomes_user_id) showMsg('Usuário criado (Ploomes ID: '+d.ploomes_user_id+').', true);
+  else showMsg('Usuário criado.', true);
+  }
+
+async function toggleActive(id, active){
+  const r=await fetch('/api/admin/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({active})});
+  const d=await r.json();
+  if(d.error) return showMsg(d.error,false);
+  showMsg('Atualizado.',true);
+  }
+
+async function editUser(id){
+  const display_name=prompt('Novo nome (deixe em branco para manter):');
+  const role=prompt('Nova role (admin/gestor/supervisor/vendedor — deixe em branco para manter):');
+  const password=prompt('Nova senha (deixe em branco para manter):');
+  const payload={};
+  if(display_name!==null && display_name.trim()) payload.display_name=display_name.trim();
+  if(role!==null && role.trim()) payload.role=role.trim();
+  if(password!==null && password.trim()) payload.password=password.trim();
+  // Ploomes ID é resolvido automaticamente pelo e-mail — não pedir ao usuário
+  const r=await fetch('/api/admin/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const d=await r.json();
+  if(d.error) return showMsg(d.error,false);
+  // Tentar resolver ploomes_id pelo email após edição
+  await fetch('/api/admin/users/'+id+'/resolve-ploomes',{method:'POST'}).catch(()=>{});
+  showMsg('Usuário atualizado.',true);
+  }
+
+async function loadTeams() {
+  const r=await fetch('/api/admin/teams');
+  const d=await r.json();
+  const sel=document.getElementById('team-select');
+  sel.innerHTML = (d.teams||[]).map(t=>`<option value="${t.id}">${t.name} (sup:${t.supervisor_user_id})</option>`).join('') || '<option value="">(sem equipes)</option>';
+  document.getElementById('teamsDump').textContent = JSON.stringify(d, null, 2);
+}
+async function createTeam(){
+  const body={name:document.getElementById('team-name').value.trim(), supervisor_user_id: Number(document.getElementById('team-supervisor').value)};
+  const r=await fetch('/api/admin/teams',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();
+  if(d.error) return showMsg(d.error,false);
+  showMsg('Equipe criada.',true);
+  }
+async function addMember(){
+  const teamId=document.getElementById('team-select').value;
+  const user_id=Number(document.getElementById('team-member').value);
+  const r=await fetch(`/api/admin/teams/${teamId}/members`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id})});
+  const d=await r.json();
+  if(d.error) return showMsg(d.error,false);
+  showMsg('Membro vinculado.',true);
+  }
+
+async function saveGoal(){
+  const body={
+    user_id:Number(document.getElementById('g-user').value),
+    year:Number(document.getElementById('g-year').value),
+    month:Number(document.getElementById('g-month').value),
+    valor_mensal:Number(document.getElementById('g-valor').value||0),
+    interacoes_semana:Number(document.getElementById('g-inter').value||0),
+  };
+  const r=await fetch('/api/goals',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();
+  if(d.error) return showMsg(d.error,false);
+  showMsg('Meta salva.',true);
+}
+async function loadGoals(){
+  const y=document.getElementById('gq-year').value||new Date().getFullYear();
+  const m=document.getElementById('gq-month').value||(new Date().getMonth()+1);
+  const u=document.getElementById('gq-user').value;
+  const url = '/api/goals?year='+encodeURIComponent(y)+'&month='+encodeURIComponent(m) + (u?('&userId='+encodeURIComponent(u)):'');
+  const r=await fetch(url);
+  const d=await r.json();
+  document.getElementById('goalsDump').textContent = JSON.stringify(d, null, 2);
+}
+
+async function loadHistoryUser(){
+  const u=document.getElementById('h-user').value;
+  const r=await fetch('/api/chat-history/'+encodeURIComponent(u));
+  const d=await r.json();
+  document.getElementById('historyDump').textContent = JSON.stringify(d, null, 2);
+}
+async function loadCoachUser(){
+  const u=document.getElementById('h-user').value;
+  const r=await fetch('/api/coaching-summaries/'+encodeURIComponent(u));
+  const d=await r.json();
+  document.getElementById('historyDump').textContent = JSON.stringify(d, null, 2);
+}
+
+async function initSidebarMe() {
+  try{
+    const r = await fetch('/api/me');
+    const m = await r.json();
+    document.getElementById('user-name').textContent = m.displayName || '—';
+    document.getElementById('user-role').textContent = m.role || '—';
+  } catch {}
+}
+
+async function loadPloomesUsers() {
+  try{
+    const r = await fetch('/api/ploomes-users');
+    const users = await r.json();
+    const sel = document.getElementById('new-ploomes-select');
+    if(!sel || !Array.isArray(users)) return;
+    const opts = ['<option value="">(auto / não preencher)</option>'];
+    for(const u of users){
+      const label = (u.name||'').replace(/</g,'&lt;').replace(/>/g,'&gt;') + ' — ' + (u.email||'') + ' (ID:'+u.id+')';
+      opts.push(`<option value="${u.id}">${label}</option>`);
+    }
+    sel.innerHTML = opts.join('');
+  } catch(e){
+    console.warn('Falha ao carregar usuários Ploomes:', e);
+  }
+}
+
+async function generateReport() {
+  const btn = document.getElementById('btn-gen-report');
+  const status = document.getElementById('report-gen-status');
+  btn.disabled = true;
+  btn.textContent = '⏳ Gerando...';
+  status.textContent = '';
+  try {
+    const r = await fetch('/api/admin/generate-report', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      status.innerHTML = `<span style="color:var(--success,#0a7a2a)">&#10003; Relatório gerado: <strong>${d.filename}</strong></span>`;
+      loadReports();
+    } else {
+      status.innerHTML = `<span style="color:#b00020">${d.error || 'Erro desconhecido'}</span>`;
+    }
+  } catch(e) {
+    status.innerHTML = `<span style="color:#b00020">Erro: ${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📈 Gerar Relatório Executivo';
+  }
+}
+
+async function loadReports() {
+  const el = document.getElementById('reports-list');
+  if (!el) return;
+  el.innerHTML = '<em style="color:var(--text-secondary)">Carregando...</em>';
+  try {
+    const r = await fetch('/api/admin/reports');
+    const d = await r.json();
+    if (!d.ok || !d.reports.length) {
+      el.innerHTML = '<em style="color:var(--text-secondary)">Nenhum relatório encontrado.</em>';
+      return;
+    }
+    const rows = d.reports.map(f => {
+      const kb = (f.sizeBytes / 1024).toFixed(1);
+      const date = f.createdAt ? f.createdAt.slice(0, 16).replace('T', ' ') : '';
+      const name = f.filename.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return `<tr>
+        <td style="font-size:13px">${name}</td>
+        <td style="font-size:13px;color:var(--text-secondary)">${date} UTC</td>
+        <td style="font-size:13px;color:var(--text-secondary)">${kb} KB</td>
+        <td><a href="/api/admin/reports/${encodeURIComponent(f.filename)}" download class="btn btn-outline btn-sm">⬇️ Baixar</a></td>
+      </tr>`;
+    }).join('');
+    el.innerHTML = `<table style="width:100%;border-collapse:collapse">
+      <thead><tr style="background:#f5f5f5">
+        <th style="padding:8px;text-align:left;font-size:13px">Arquivo</th>
+        <th style="padding:8px;text-align:left;font-size:13px">Criado em</th>
+        <th style="padding:8px;text-align:left;font-size:13px">Tamanho</th>
+        <th style="padding:8px"></th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+  } catch(e) {
+    el.innerHTML = `<em style="color:#b00020">Erro: ${e.message}</em>`;
+  }
+}
+    loadPloomesUsers(); loadUsers(); loadTeams();
+  })();
+}
+
+// ─────────────────────────────────────────────────────────────
+// View: Gestão (integrado nativamente — sem iframe)
+// ─────────────────────────────────────────────────────────────
+async function renderGestor(root) {
+  const me = appState.me;
+  if (!me || !['admin','gestor'].includes(me.role)) {
+    root.innerHTML = `<div style="padding:24px"><div class="card"><div class="k">Acesso negado</div></div></div>`;
+    return;
+  }
+  if (!document.getElementById('gestor-native-styles')) {
+    const s = document.createElement('style'); s.id = 'gestor-native-styles';
+    s.textContent = "\n  :root {\n    --bg: #0f1117;\n    --surface: #1a1d27;\n    --surface2: #222535;\n    --border: #2e3347;\n    --text: #e8eaf0;\n    --text-muted: #8b93a7;\n    --accent: #4f8ef7;\n    --green: #22c55e;\n    --yellow: #f59e0b;\n    --red: #ef4444;\n    --red-soft: rgba(239,68,68,0.15);\n    --yellow-soft: rgba(245,158,11,0.15);\n    --green-soft: rgba(34,197,94,0.15);\n  }\n  * { box-sizing: border-box; margin: 0; padding: 0; }\n  body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; font-size: 14px; line-height: 1.5; min-height: 100vh; }\n\n  /* ── HEADER ── */\n  .header {\n    background: var(--surface);\n    border-bottom: 1px solid var(--border);\n    padding: 14px 24px;\n    display: flex;\n    align-items: center;\n    justify-content: space-between;\n    gap: 12px;\n    flex-wrap: wrap;\n    position: sticky;\n    top: 0;\n    z-index: 10;\n  }\n  .header-left { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }\n  .header-title { font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; }\n  .header-title span { font-size: 20px; }\n  .header-right { display: flex; align-items: center; gap: 10px; }\n  .update-badge {\n    font-size: 11px;\n    color: var(--text-muted);\n    background: var(--surface2);\n    border: 1px solid var(--border);\n    border-radius: 6px;\n    padding: 4px 10px;\n  }\n  .btn {\n    border-radius: 8px;\n    padding: 7px 14px;\n    font-size: 13px;\n    font-weight: 600;\n    cursor: pointer;\n    border: none;\n    transition: opacity .15s;\n  }\n  .btn:hover { opacity: 0.85; }\n  .btn-primary { background: var(--accent); color: #fff; }\n  .btn-ghost { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }\n  a.btn-ghost { text-decoration: none; }\n\n  /* ── LOADING / ERROR ── */\n  #loadingBar {\n    height: 3px;\n    background: linear-gradient(90deg, var(--accent), #7c3aed);\n    position: fixed;\n    top: 0; left: 0; right: 0;\n    z-index: 999;\n    display: none;\n    animation: slide 1.2s linear infinite;\n  }\n  @keyframes slide { from { opacity: 0.6 } 50% { opacity: 1 } to { opacity: 0.6 } }\n  #errorBanner {\n    display: none;\n    background: var(--red-soft);\n    border: 1px solid var(--red);\n    border-radius: 8px;\n    padding: 10px 16px;\n    color: var(--red);\n    margin: 16px 24px 0;\n    font-size: 13px;\n  }\n\n  /* ── LAYOUT ── */\n  .page { padding: 24px; max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }\n\n  /* ── SECTION TITLE ── */\n  .section-title { font-size: 14px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }\n\n  /* ── KPI CARDS ── */\n  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }\n  .kpi-card {\n    background: var(--surface);\n    border: 1px solid var(--border);\n    border-radius: 12px;\n    padding: 16px;\n  }\n  .kpi-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }\n  .kpi-icon { font-size: 20px; margin-bottom: 4px; }\n  .kpi-value { font-size: 24px; font-weight: 800; margin-top: 6px; }\n  .kpi-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }\n\n  /* ── ALERTS ── */\n  .alerts-list { display: flex; flex-direction: column; gap: 8px; }\n  .alert-item {\n    display: flex;\n    align-items: flex-start;\n    gap: 12px;\n    padding: 12px 14px;\n    border-radius: 10px;\n    font-size: 13px;\n  }\n  .alert-item.critical { background: var(--red-soft); border: 1px solid rgba(239,68,68,0.35); }\n  .alert-item.warning  { background: var(--yellow-soft); border: 1px solid rgba(245,158,11,0.3); }\n  .alert-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }\n  .alert-msg { flex: 1; color: var(--text); }\n  .alert-ts { font-size: 11px; color: var(--text-muted); white-space: nowrap; margin-top: 2px; }\n  .alerts-empty { color: var(--text-muted); font-size: 13px; padding: 10px 0; }\n\n  /* ── VENDEDORES TABLE ── */\n  .table-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); }\n  table { width: 100%; border-collapse: collapse; background: var(--surface); }\n  thead tr { border-bottom: 1px solid var(--border); }\n  thead th {\n    padding: 10px 14px;\n    text-align: left;\n    font-size: 11px;\n    font-weight: 700;\n    color: var(--text-muted);\n    text-transform: uppercase;\n    letter-spacing: 0.5px;\n    white-space: nowrap;\n    cursor: pointer;\n    user-select: none;\n  }\n  thead th:hover { color: var(--accent); }\n  thead th.sorted { color: var(--accent); }\n  tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; }\n  tbody tr:last-child { border-bottom: none; }\n  tbody tr:hover { background: var(--surface2); }\n  tbody td { padding: 11px 14px; font-size: 13px; vertical-align: middle; }\n\n  /* Risk score bar */\n  .risk-bar-wrap { display: flex; align-items: center; gap: 8px; min-width: 120px; }\n  .risk-bar-bg { flex: 1; height: 6px; background: var(--surface2); border-radius: 999px; overflow: hidden; }\n  .risk-bar-fill { height: 100%; border-radius: 999px; }\n  .risk-val { font-weight: 700; font-size: 13px; min-width: 28px; text-align: right; }\n  .risk-green { color: var(--green); }\n  .risk-yellow { color: var(--yellow); }\n  .risk-red { color: var(--red); }\n\n  /* Progress bar for meta */\n  .meta-bar-wrap { display: flex; flex-direction: column; gap: 3px; min-width: 100px; }\n  .meta-bar-bg { height: 5px; background: var(--surface2); border-radius: 999px; overflow: hidden; }\n  .meta-bar-fill { height: 100%; background: var(--accent); border-radius: 999px; }\n  .meta-pct { font-size: 11px; color: var(--text-muted); }\n\n  /* Actions tags */\n  .actions-list { display: flex; flex-wrap: wrap; gap: 4px; max-width: 260px; }\n  .action-tag {\n    font-size: 11px;\n    padding: 2px 7px;\n    border-radius: 4px;\n    background: var(--surface2);\n    border: 1px solid var(--border);\n    color: var(--text-muted);\n    white-space: nowrap;\n  }\n  .action-tag.urgent { background: var(--red-soft); border-color: rgba(239,68,68,0.3); color: var(--red); }\n  .action-tag.warn   { background: var(--yellow-soft); border-color: rgba(245,158,11,0.3); color: var(--yellow); }\n\n  .cell-red   { color: var(--red); font-weight: 700; }\n  .cell-yellow{ color: var(--yellow); font-weight: 700; }\n  .cell-muted { color: var(--text-muted); }\n\n  /* ── AGENDA ── */\n  .agenda-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }\n  .agenda-item {\n    display: flex;\n    align-items: flex-start;\n    gap: 12px;\n    padding: 12px 14px;\n    border-radius: 10px;\n    font-size: 13px;\n  }\n  .agenda-item.p0 { background: rgba(239,68,68,0.18); border: 1px solid rgba(239,68,68,0.4); }\n  .agenda-item.p1 { background: var(--red-soft); border: 1px solid rgba(239,68,68,0.25); }\n  .agenda-item.p2 { background: var(--yellow-soft); border: 1px solid rgba(245,158,11,0.3); }\n  .agenda-item.p3 { background: var(--green-soft); border: 1px solid rgba(34,197,94,0.3); }\n  .agenda-icon { font-size: 18px; flex-shrink: 0; }\n  .agenda-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7; margin-bottom: 2px; }\n  .agenda-action { color: var(--text); line-height: 1.4; }\n  .agenda-empty { color: var(--text-muted); font-size: 13px; padding: 8px 0; }\n\n  @media (max-width: 640px) {\n    .page { padding: 16px; }\n    .kpi-grid { grid-template-columns: repeat(2, 1fr); }\n    .header { padding: 12px 16px; }\n  }\n";
+    document.head.appendChild(s);
+  }
+  root.style.overflow = 'auto';
+  root.innerHTML = "<div id=\"loadingBar\"></div>\n\n<div class=\"header\">\n  <div class=\"header-left\">\n    <div class=\"header-title\"><span>📊</span> Dashboard de Gestão</div>\n    <span class=\"update-badge\">Atualizado: <span id=\"lastUpdate\">—</span></span>\n    <label for=\"pipelineSelectGestor\" style=\"margin-left:1rem;font-size:13px;color:var(--text-muted)\">📂 Funil:</label>\n    <select id=\"pipelineSelectGestor\" style=\"background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:13px\"></select>\n  </div>\n  <div class=\"header-right\">\n    \n  </div>\n</div>\n\n<div id=\"errorBanner\"></div>\n\n<div class=\"page\">\n\n  <!-- TOTAIS DO TIME -->\n  <div>\n    <div class=\"section-title\">👥 Totais do Time</div>\n    <div class=\"kpi-grid\" id=\"kpiGrid\">\n      <div class=\"kpi-card\"><div class=\"kpi-icon\">💰</div><div class=\"kpi-label\">Receita do Mês</div><div class=\"kpi-value\" id=\"kpiReceitaMes\">—</div></div>\n      <div class=\"kpi-card\"><div class=\"kpi-icon\">🏆</div><div class=\"kpi-label\">Deals Ganhos Mês</div><div class=\"kpi-value\" id=\"kpiGanhosMes\">—</div></div>\n      <div class=\"kpi-card\"><div class=\"kpi-icon\">❌</div><div class=\"kpi-label\">Deals Perdidos Mês</div><div class=\"kpi-value\" id=\"kpiPerdidosMes\">—</div></div>\n      <div class=\"kpi-card\"><div class=\"kpi-icon\">📊</div><div class=\"kpi-label\">Pipeline em Aberto</div><div class=\"kpi-value\" id=\"kpiPipelineQtd\">—</div><div class=\"kpi-sub\" id=\"kpiPipelineValor\">—</div></div>\n      <div class=\"kpi-card\"><div class=\"kpi-icon\">📱</div><div class=\"kpi-label\">Interações (7d)</div><div class=\"kpi-value\" id=\"kpiInteracoes\">—</div></div>\n      <div class=\"kpi-card\"><div class=\"kpi-icon\">⚠️</div><div class=\"kpi-label\">Tarefas Vencidas</div><div class=\"kpi-value\" id=\"kpiTarefasVencidas\">—</div></div>\n    </div>\n  </div>\n\n  <!-- ALERTAS CRÍTICOS -->\n  <div>\n    <div class=\"section-title\">🚨 Alertas Críticos</div>\n    <div id=\"alertsList\" class=\"alerts-list\">\n      <div class=\"alerts-empty\">Carregando alertas...</div>\n    </div>\n  </div>\n\n  <!-- TABELA DE VENDEDORES -->\n  <div>\n    <div class=\"section-title\" style=\"display:flex;align-items:center;justify-content:space-between\">\n      <span>👤 Vendedores</span>\n      <span style=\"font-size:11px;color:var(--text-muted);font-weight:400;text-transform:none;letter-spacing:0\">Clique no cabeçalho para ordenar</span>\n    </div>\n    <div class=\"table-wrap\">\n      <table id=\"vendedoresTable\">\n        <thead>\n          <tr>\n            <th data-col=\"name\">Vendedor</th>\n            <th data-col=\"riskScore\" class=\"sorted\">Risk Score ▾</th>\n            <th data-col=\"dealsAbertos\">Abertos / Val. Aberto</th>\n            <th data-col=\"ganhosMes\">Ganhos Mês / Receita</th>\n            <th data-col=\"metaPct\">% Meta</th>\n            <th data-col=\"interacoes7d\">Interações 7d</th>\n            <th data-col=\"tarefasVencidas\">Tarefas Venc.</th>\n            <th data-col=\"dealsParados\">Deals Parados >30d</th>\n            <th>Ações Recomendadas</th>\n          </tr>\n        </thead>\n        <tbody id=\"vendedoresTbody\">\n          <tr><td colspan=\"9\" style=\"color:var(--text-muted);text-align:center;padding:20px\">Carregando...</td></tr>\n        </tbody>\n      </table>\n    </div>\n  </div>\n\n  <!-- AGENDA DO GESTOR -->\n  <div>\n    <div class=\"section-title\">📋 Agenda do Gestor — Hoje</div>\n    <div id=\"agendaGrid\" class=\"agenda-grid\">\n      <div class=\"agenda-empty\">Carregando agenda...</div>\n    </div>\n  </div>\n\n</div>";
+  (function gestorScope() {
+    // ── Formatação ──────────────────────────────────────────────
+function fmtBRL(v) {
+  return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtDate(v) {
+  if (!v) return '—';
+  try { return new Date(v).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); }
+  catch { return String(v); }
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ── Loading / Error ─────────────────────────────────────────
+function showLoading(on) {
+  document.getElementById('loadingBar').style.display = on ? 'block' : 'none';
+}
+
+function showError(msg) {
+  const el = document.getElementById('errorBanner');
+  el.textContent = '⚠️ Erro ao carregar dados: ' + msg;
+  el.style.display = 'block';
+}
+
+function clearError() {
+  const el = document.getElementById('errorBanner');
+  el.style.display = 'none';
+  el.textContent = '';
+}
+
+// ── Render Totals ───────────────────────────────────────────
+function renderTotals(t) {
+  if (!t) return;
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  set('kpiReceitaMes', fmtBRL(t.receitaMes));
+  set('kpiGanhosMes', t.dealsGanhosMes ?? '—');
+  set('kpiPerdidosMes', t.dealsPerdidosMes ?? '—');
+  set('kpiPipelineQtd', t.pipelineQtd ?? t.dealsAbertos ?? '—');
+  set('kpiPipelineValor', (t.pipelineValor ?? t.receitaAberta) != null ? fmtBRL(t.pipelineValor ?? t.receitaAberta) : '—');
+  set('kpiInteracoes', t.interacoes7d ?? '—');
+  const tarefasEl = document.getElementById('kpiTarefasVencidas');
+  if (tarefasEl) {
+    tarefasEl.textContent = t.tarefasVencidas ?? '—';
+    tarefasEl.style.color = (t.tarefasVencidas > 0) ? 'var(--red)' : 'var(--green)';
+  }
+}
+
+// ── Render Alerts ───────────────────────────────────────────
+function renderAlerts(alerts) {
+  const container = document.getElementById('alertsList');
+  if (!alerts || alerts.length === 0) {
+    container.innerHTML = '';
+    const empty = document.createElement('div');
+    empty.className = 'alerts-empty';
+    empty.textContent = '✅ Nenhum alerta no momento.';
+    container.appendChild(empty);
+    return;
+  }
+
+  // Sort: critical first
+  const sorted = [...alerts].sort((a, b) => {
+    const order = { critical: 0, warning: 1 };
+    return (order[a.severity] ?? 2) - (order[b.severity] ?? 2);
+  });
+
+  container.innerHTML = '';
+  sorted.forEach(a => {
+    const item = document.createElement('div');
+    item.className = 'alert-item ' + (a.severity === 'critical' ? 'critical' : 'warning');
+
+    const icon = document.createElement('span');
+    icon.className = 'alert-icon';
+    icon.textContent = a.severity === 'critical' ? '🚨' : '⚠️';
+
+    const body = document.createElement('div');
+    body.style.flex = '1';
+    const msg = document.createElement('div');
+    msg.className = 'alert-msg';
+    msg.textContent = a.message || a.msg || String(a);
+    const ts = document.createElement('div');
+    ts.className = 'alert-ts';
+    ts.textContent = fmtDate(a.timestamp || a.ts || a.createdAt);
+
+    body.appendChild(msg);
+    body.appendChild(ts);
+    item.appendChild(icon);
+    item.appendChild(body);
+    container.appendChild(item);
+  });
+}
+
+// ── Pipeline filter ────────────────────────────────────────
+let selectedPipelineId = null;
+
+// ── Render Vendedores ───────────────────────────────────────
+let vendedoresData = [];
+let sortCol = 'riskScore';
+let sortAsc = false;
+
+function riskColor(score) {
+  if (score <= 30) return 'var(--green)';
+  if (score <= 60) return 'var(--yellow)';
+  return 'var(--red)';
+}
+
+function riskClass(score) {
+  if (score <= 30) return 'risk-green';
+  if (score <= 60) return 'risk-yellow';
+  return 'risk-red';
+}
+
+function renderVendedores(vendedores) {
+  if (!vendedores) return;
+  vendedoresData = vendedores;
+  sortAndRenderVendedores();
+}
+
+function sortAndRenderVendedores() {
+  const sorted = [...vendedoresData].sort((a, b) => {
+    let av = a[sortCol] ?? 0;
+    let bv = b[sortCol] ?? 0;
+    if (sortCol === 'name') {
+      av = String(av).toLowerCase();
+      bv = String(bv).toLowerCase();
+      return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+    }
+    return sortAsc ? av - bv : bv - av;
+  });
+
+  const tbody = document.getElementById('vendedoresTbody');
+  tbody.innerHTML = '';
+
+  if (!sorted.length) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 9;
+    td.style.cssText = 'color:var(--text-muted);text-align:center;padding:20px';
+    td.textContent = 'Nenhum vendedor encontrado.';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+
+  sorted.forEach(v => {
+    const tr = document.createElement('tr');
+
+    // Nome
+    const tdName = document.createElement('td');
+    tdName.style.fontWeight = '600';
+    tdName.textContent = v.name || v.nome || '—';
+
+    // Risk Score
+    const tdRisk = document.createElement('td');
+    const score = Number(v.riskScore ?? v.risk_score ?? 0);
+    const riskWrap = document.createElement('div');
+    riskWrap.className = 'risk-bar-wrap';
+    const riskBg = document.createElement('div');
+    riskBg.className = 'risk-bar-bg';
+    const riskFill = document.createElement('div');
+    riskFill.className = 'risk-bar-fill';
+    riskFill.style.width = Math.min(100, score) + '%';
+    riskFill.style.background = riskColor(score);
+    riskBg.appendChild(riskFill);
+    const riskVal = document.createElement('span');
+    riskVal.className = 'risk-val ' + riskClass(score);
+    riskVal.textContent = score;
+    riskWrap.appendChild(riskBg);
+    riskWrap.appendChild(riskVal);
+    tdRisk.appendChild(riskWrap);
+
+    // Deals Abertos / Valor Aberto
+    const tdAbertos = document.createElement('td');
+    const qtdAbertos = v.dealsAbertos ?? v.deals_abertos ?? '—';
+    const valAbertos = v.receitaAberta ?? v.receita_aberta;
+    const abLine1 = document.createElement('div');
+    abLine1.style.fontWeight = '600';
+    abLine1.textContent = qtdAbertos + ' deals';
+    const abLine2 = document.createElement('div');
+    abLine2.className = 'cell-muted';
+    abLine2.textContent = valAbertos != null ? fmtBRL(valAbertos) : '—';
+    tdAbertos.appendChild(abLine1);
+    tdAbertos.appendChild(abLine2);
+
+    // Ganhos Mês / Receita Mês
+    const tdGanhos = document.createElement('td');
+    const ganhosCt = v.ganhosMes ?? v.ganhos_mes ?? '—';
+    const ganhosVal = v.receitaMes ?? v.receita_mes;
+    const gLine1 = document.createElement('div');
+    gLine1.style.fontWeight = '600';
+    gLine1.textContent = ganhosCt + (typeof ganhosCt === 'number' ? ' ganhos' : '');
+    const gLine2 = document.createElement('div');
+    gLine2.className = 'cell-muted';
+    gLine2.textContent = ganhosVal != null ? fmtBRL(ganhosVal) : '—';
+    tdGanhos.appendChild(gLine1);
+    tdGanhos.appendChild(gLine2);
+
+    // % Meta
+    const tdMeta = document.createElement('td');
+    const metaPct = v.metaPct ?? v.meta_pct;
+    if (metaPct != null) {
+      const metaWrap = document.createElement('div');
+      metaWrap.className = 'meta-bar-wrap';
+      const metaBg = document.createElement('div');
+      metaBg.className = 'meta-bar-bg';
+      const metaFill = document.createElement('div');
+      metaFill.className = 'meta-bar-fill';
+      metaFill.style.width = Math.min(100, Number(metaPct)) + '%';
+      if (metaPct >= 100) metaFill.style.background = 'var(--green)';
+      else if (metaPct >= 60) metaFill.style.background = 'var(--accent)';
+      else metaFill.style.background = 'var(--yellow)';
+      metaBg.appendChild(metaFill);
+      const metaText = document.createElement('div');
+      metaText.className = 'meta-pct';
+      metaText.textContent = Number(metaPct).toFixed(0) + '%';
+      metaWrap.appendChild(metaBg);
+      metaWrap.appendChild(metaText);
+      tdMeta.appendChild(metaWrap);
+    } else {
+      tdMeta.className = 'cell-muted';
+      tdMeta.textContent = '—';
+    }
+
+    // Interações 7d
+    const tdInter = document.createElement('td');
+    tdInter.textContent = v.interacoes7d ?? v.interacoes_7d ?? '—';
+
+    // Tarefas Vencidas
+    const tdTarefas = document.createElement('td');
+    const tv = v.tarefasVencidas ?? v.tarefas_vencidas ?? 0;
+    tdTarefas.textContent = tv;
+    if (tv > 3) tdTarefas.className = 'cell-red';
+
+    // Deals Parados >30d
+    const tdParados = document.createElement('td');
+    const dp = v.dealsParados ?? v.deals_parados ?? 0;
+    tdParados.textContent = dp;
+    if (dp > 5) tdParados.className = 'cell-yellow';
+
+    // Ações Recomendadas
+    const tdAcoes = document.createElement('td');
+    const actions = v.actions || v.acoes || [];
+    if (actions.length) {
+      const list = document.createElement('div');
+      list.className = 'actions-list';
+      actions.forEach(ac => {
+        const tag = document.createElement('span');
+        const acText = typeof ac === 'string' ? ac : (ac.label || ac.action || JSON.stringify(ac));
+        const isUrgent = typeof ac === 'object' && (ac.severity === 'critical' || ac.urgent);
+        const isWarn = typeof ac === 'object' && ac.severity === 'warning';
+        tag.className = 'action-tag' + (isUrgent ? ' urgent' : isWarn ? ' warn' : '');
+        tag.textContent = acText;
+        list.appendChild(tag);
+      });
+      tdAcoes.appendChild(list);
+    } else {
+      tdAcoes.className = 'cell-muted';
+      tdAcoes.textContent = '—';
+    }
+
+    tr.appendChild(tdName);
+    tr.appendChild(tdRisk);
+    tr.appendChild(tdAbertos);
+    tr.appendChild(tdGanhos);
+    tr.appendChild(tdMeta);
+    tr.appendChild(tdInter);
+    tr.appendChild(tdTarefas);
+    tr.appendChild(tdParados);
+    tr.appendChild(tdAcoes);
+    tbody.appendChild(tr);
+  });
+}
+
+// ── Table sorting ───────────────────────────────────────────
+document.getElementById('vendedoresTable').querySelector('thead').addEventListener('click', function(e) {
+  const th = e.target.closest('th');
+  if (!th || !th.dataset.col) return;
+  const col = th.dataset.col;
+  if (sortCol === col) {
+    sortAsc = !sortAsc;
+  } else {
+    sortCol = col;
+    sortAsc = col === 'name';
+  }
+  document.querySelectorAll('#vendedoresTable thead th').forEach(h => h.classList.remove('sorted'));
+  th.classList.add('sorted');
+  th.textContent = th.textContent.replace(' ▴', '').replace(' ▾', '') + (sortAsc ? ' ▴' : ' ▾');
+  sortAndRenderVendedores();
+});
+
+// ── Render Agenda ───────────────────────────────────────────
+function renderAgenda(agenda) {
+  const grid = document.getElementById('agendaGrid');
+  if (!agenda || agenda.length === 0) {
+    grid.innerHTML = '';
+    const empty = document.createElement('div');
+    empty.className = 'agenda-empty';
+    empty.textContent = '✅ Sem itens na agenda hoje.';
+    grid.appendChild(empty);
+    return;
+  }
+
+  const typeColors = {
+    task_overdue: 'p1',
+    deal_stalled: 'p2',
+    deal_hot: 'p3',
+    critical_alert: 'p0',
+  };
+
+  const sorted = [...agenda].sort((a, b) => (a.priority ?? 9) - (b.priority ?? 9));
+  grid.innerHTML = '';
+  sorted.forEach(item => {
+    const cls = typeColors[item.type] || ('p' + (item.priority ?? 2));
+    const el = document.createElement('div');
+    el.className = 'agenda-item ' + cls;
+
+    const iconEl = document.createElement('span');
+    iconEl.className = 'agenda-icon';
+    iconEl.textContent = item.icon || '📌';
+
+    const body = document.createElement('div');
+    const labelEl = document.createElement('div');
+    labelEl.className = 'agenda-label';
+    labelEl.textContent = item.label || item.type || '';
+    const actionEl = document.createElement('div');
+    actionEl.className = 'agenda-action';
+    actionEl.textContent = item.action || '';
+
+    body.appendChild(labelEl);
+    body.appendChild(actionEl);
+    el.appendChild(iconEl);
+    el.appendChild(body);
+    grid.appendChild(el);
+  });
+}
+
+// ── Main Load ───────────────────────────────────────────────
+async function loadAll() {
+  clearError();
+  showLoading(true);
+  try {
+    const params = new URLSearchParams();
+    if (selectedPipelineId) params.set('pipelineId', selectedPipelineId);
+    const gestorUrl = '/api/gestor-dashboard' + (params.toString() ? '?' + params.toString() : '');
+    const [gestorRes, alertsRes, agendaRes] = await Promise.allSettled([
+      fetch(gestorUrl).then(r => r.json()),
+      fetch('/api/alerts').then(r => r.json()),
+      fetch('/api/agenda-hoje').then(r => r.json()),
+    ]);
+    if (gestorRes.status === 'fulfilled') {
+      renderTotals(gestorRes.value.teamTotals);
+      renderVendedores(gestorRes.value.vendedores);
+      document.getElementById('lastUpdate').textContent = new Date(gestorRes.value.generatedAt || Date.now()).toLocaleString('pt-BR');
+    } else {
+      console.warn('[gestor-dashboard]', gestorRes.reason);
+      showError('Erro ao carregar dados do gestor: ' + gestorRes.reason?.message);
+    }
+    if (alertsRes.status === 'fulfilled') renderAlerts(alertsRes.value);
+    else console.warn('[alerts]', alertsRes.reason);
+    if (agendaRes.status === 'fulfilled') renderAgenda(agendaRes.value);
+    else console.warn('[agenda]', agendaRes.reason);
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    showLoading(false);
+  }
+}
+
+async function gestorViewInit() {
+  // Load pipeline filter
+  const rp = await fetch('/api/pipelines-active');
+  if (rp.ok) {
+    const pipelines = await rp.json();
+    const psel = document.getElementById('pipelineSelectGestor');
+    psel.innerHTML = '<option value="">(Todos os funis)</option>' +
+      pipelines.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    psel.addEventListener('change', () => {
+      selectedPipelineId = psel.value ? Number(psel.value) : null;
+      loadAll();
+    });
+  }
+  loadAll();
+}
+    gestorViewInit();
+  })();
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -469,6 +469,7 @@ async function loadFunnelHealth(){
   try {
     const params = new URLSearchParams();
     if (selectedPipelineId) params.set('pipelineId', selectedPipelineId);
+    if (selectedUserId) params.set('ploomesId', selectedUserId);
     let data = await cachedFetch(fhKey, async () => {
       const r = await fetch('/api/funnel-health' + (params.toString() ? '?' + params.toString() : ''));
       return r.json();
@@ -529,18 +530,22 @@ async function loadCrmHygiene() {
   if (hygCached === null) grid.innerHTML = '<div class="item">Carregando higiene do CRM...</div>';
   try {
     const data = await cachedFetch(hygKey, async () => {
-      const r = await fetch('/api/crm-health');
+      const params = new URLSearchParams();
+      if (selectedPipelineId) params.set('pipelineId', selectedPipelineId);
+      if (selectedUserId) params.set('ploomesId', selectedUserId);
+      const url = '/api/crm-health' + (params.toString() ? '?' + params.toString() : '');
+      const r = await fetch(url);
       return r.json();
     });
     if (data.error) { grid.innerHTML = `<div class="item">Erro: ${data.error}</div>`; return; }
     hygieneData = data.vendors || [];
 
-    // Supervisor: filter
+    // Supervisor: filter local (backend já filtra, mas mantém como sane-check)
     let vendors = hygieneData;
-    if (me.role === 'supervisor') {
+    if (me.role === 'supervisor' && !selectedUserId) {
       const r2 = await fetch('/api/ploomes-users');
       const allowed = await r2.json();
-      const allowedIds = new Set(allowed.map(u => u.ploomesUserId || u.ploomes_user_id));
+      const allowedIds = new Set(allowed.map(u => u.id || u.ploomesUserId || u.ploomes_user_id));
       vendors = vendors.filter(v => allowedIds.has(v.ownerId));
     }
 
@@ -649,39 +654,47 @@ document.addEventListener('click', function(e) {
   if (e.target === modal) closeModal();
 });
 
-async function loadVendors(){
-  if (!me || !['admin','gestor','supervisor'].includes(me.role)) return;
-  // Garante que o seletor é visível
-  const bar = document.getElementById('vendorBar');
-  if (bar) bar.style.display = 'flex';
-  const r = await fetch('/api/ploomes-users');
-  if (!r.ok) return;
-  const users = await r.json();
-  const sel = document.getElementById('vendorSelect');
-  const defaultLabel = (me.role === 'supervisor') ? '(Minha equipe)' : '(Todos os vendedores)';
-  sel.innerHTML = `<option value="">${defaultLabel}</option>` +
-    users.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
-  sel.addEventListener('change', () => {
-    selectedUserId = sel.value ? Number(sel.value) : null;
-    loadDashboard();
-    loadFunnelHealth();
-    loadCrmHygiene();
-  });
-
-  // Load pipeline filter
-  const rp = await fetch('/api/pipelines-active');
-  if (rp.ok) {
+async function loadPipelines() {
+  try {
+    const rp = await fetch('/api/pipelines-active');
+    if (!rp.ok) return;
     const pipelines = await rp.json();
     const psel = document.getElementById('pipelineSelect');
+    if (!psel) return;
     psel.innerHTML = '<option value="">(Todos os funis)</option>' +
       pipelines.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-    psel.addEventListener('change', () => {
+    psel.onchange = () => {
       selectedPipelineId = psel.value ? Number(psel.value) : null;
       loadDashboard();
       loadFunnelHealth();
       loadCrmHygiene();
-    });
-  }
+    };
+  } catch(e) { console.error('[dashboard] Erro ao carregar funis:', e); }
+}
+
+async function loadVendors(){
+  // Funis: independente do role, sempre carrega
+  await loadPipelines();
+
+  if (!me || !['admin','gestor','supervisor'].includes(me.role)) return;
+  // Garante que o seletor é visível
+  const bar = document.getElementById('vendorBar');
+  if (bar) bar.style.display = 'flex';
+  try {
+    const r = await fetch('/api/ploomes-users');
+    if (!r.ok) return;
+    const users = await r.json();
+    const sel = document.getElementById('vendorSelect');
+    const defaultLabel = (me.role === 'supervisor') ? '(Minha equipe)' : '(Todos os vendedores)';
+    sel.innerHTML = `<option value="">${defaultLabel}</option>` +
+      users.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+    sel.onchange = () => {
+      selectedUserId = sel.value ? Number(sel.value) : null;
+      loadDashboard();
+      loadFunnelHealth();
+      loadCrmHygiene();
+    };
+  } catch(e) { console.error('[dashboard] Erro ao carregar vendedores:', e); }
 }
 
 async function loadDashboard(){

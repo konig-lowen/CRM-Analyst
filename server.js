@@ -32,7 +32,17 @@ const PLOOMES_BASE = 'https://api2.ploomes.com';
 // Paulo Victor (ID: 10001176) é o dono da empresa e NÃO atua como vendedor
 // Sarah Baliana (ID: 60023650) é gestor — não é vendedora
 // FATURAMENTO (ID: 10025857) é usuário de integração/financeiro — não é vendedor
-const EXCLUDED_FROM_ANALYSIS = [10001176, 60023650, 10025857];
+const EXCLUDED_FROM_ANALYSIS = [
+  10001176, 60023650, 10025857,   // originais
+  10001177,  // Automação
+  60027254,  // Clawdbot
+  10029297,  // DocuSign
+  60001670,  // Google Calendar
+  10032778,  // Integração Omie
+  60015977,  // Integração testes
+  10022193,  // Omie
+  10022456,  // WhatsApp
+];
 
 // Funis inativos/de teste — NUNCA incluir em análises
 // 60009328 = [Cópia] - Manutenção da Carteira (funil de teste/cópia)
@@ -107,6 +117,17 @@ function getWarehouseLastRun() {
   if (!wdb) return null;
   try {
     return wdb.prepare('SELECT id, started_at, finished_at, ok, error FROM etl_runs ORDER BY id DESC LIMIT 1').get();
+  } catch {
+    return null;
+  }
+}
+
+// Retorna o último run com sucesso (ok=1) — usado por buildExecReportHtml e MVs
+function getWarehouseLastOkRun() {
+  const wdb = getWarehouseDb();
+  if (!wdb) return null;
+  try {
+    return wdb.prepare('SELECT id, started_at, finished_at, ok, error FROM etl_runs WHERE ok=1 ORDER BY id DESC LIMIT 1').get();
   } catch {
     return null;
   }
@@ -347,8 +368,19 @@ function resolveDataSource(startDate, endDate, isCurrentState = false, isRefresh
 }
 
 function kickWarehouseSyncBackground(reason = 'stale') {
-  // Avoid stampede: at most one spawn per 5 minutes.
-  if (warehouseSyncInFlightAt && (Date.now() - warehouseSyncInFlightAt) < 5 * 60 * 1000) return false;
+  // Avoid stampede: at most one spawn per 30 minutes.
+  if (warehouseSyncInFlightAt && (Date.now() - warehouseSyncInFlightAt) < 30 * 60 * 1000) return false;
+  // Também verificar último run no DB (protção pós-restart)
+  try {
+    const wdb = getWarehouseDb();
+    if (wdb) {
+      const lr = wdb.prepare('SELECT started_at FROM etl_runs ORDER BY id DESC LIMIT 1').get();
+      if (lr && lr.started_at) {
+        const age = Date.now() - new Date(lr.started_at).getTime();
+        if (age < 30 * 60 * 1000) { console.log(`[warehouse] skip kick (last run ${Math.round(age/60000)}min ago)`); return false; }
+      }
+    }
+  } catch { /* ignore */ }
   warehouseSyncInFlightAt = Date.now();
   try {
     const child = spawn(process.execPath, ['/opt/ploomes-analyst/scripts/sync_warehouse.js'], {
@@ -1177,11 +1209,11 @@ function computeSalesIndicatorsWarehouse(ploomesIds, periodDays) {
     interactionsByOwner[oid].count++;
   }
 
-  // Hygiene scores
+  // Hygiene scores (usa último run com sucesso)
   const hygieneScores = {};
   try {
-    const last = getWarehouseLastRun();
-    if (last && last.ok) {
+    const last = getWarehouseLastOkRun();
+    if (last) {
       const rows = wdb.prepare('SELECT owner_id, score FROM mv_hygiene WHERE run_id = ?').all(last.id);
       for (const r of rows) {
         const score = Number(r.score) || 0;
@@ -1221,12 +1253,14 @@ function computeSalesIndicatorsWarehouse(ploomesIds, periodDays) {
   };
 }
 
-function computeCrmHealthWarehouse() {
+function computeCrmHealthWarehouse({ pipelineId, ownerIds } = {}) {
   const wdb = getWarehouseDb();
   const dict = getWarehouseDictionary();
   if (!wdb || !dict) return { error: 'warehouse indisponível' };
-  const last = getWarehouseLastRun();
-  if (!last || !last.ok) return { error: 'warehouse sem run OK' };
+  const last = getWarehouseLastOkRun(); // usar sempre o último run com sucesso
+  // Se há filtros de pipeline ou owner, bypass warehouse (mv_hygiene não tem dimensão de pipeline)
+  if (pipelineId || (ownerIds && ownerIds.length > 0)) return { error: 'filtros requerem API' };
+  if (!last) return { error: 'warehouse sem run OK' };
 
   const vendorsRaw = wdb.prepare('SELECT owner_id, score, abandoned_90d, open_no_amount, lost_no_reason_pct FROM mv_hygiene WHERE run_id = ?').all(last.id);
   const vendors = vendorsRaw.map(r => ({
@@ -1582,11 +1616,11 @@ async function computeDataQualityDiagnostic() {
 // ─── CRM Health Cache (1h) ────────────────────────────────────────────────
 const crmHealthCacheMap = new Map(); // key: JSON.stringify(sortedIds) -> { data, ts }
 
-async function computeCrmHealth(ids) {
+async function computeCrmHealth(ids, { pipelineId, ownerIds } = {}) {
   // Prefer warehouse when fresh; kick sync in background if stale.
   try {
     if (isWarehouseFresh()) {
-      const wh = computeCrmHealthWarehouse();
+      const wh = computeCrmHealthWarehouse({ pipelineId, ownerIds });
       if (wh && !wh.error) return wh;
     } else {
       kickWarehouseSyncBackground('computeCrmHealth');
@@ -1598,8 +1632,8 @@ async function computeCrmHealth(ids) {
   const now = new Date();
   const nowMs = now.getTime();
 
-  // Return cached if fresh (4h)
-  const cacheKey = ids ? JSON.stringify([...ids].sort()) : '__all__';
+  // Return cached if fresh (4h) — cache key inclui filtros
+  const cacheKey = `${pipelineId||'all'}_${ownerIds ? [...ownerIds].sort().join(',') : 'all'}`;
   const cached = crmHealthCacheMap.get(cacheKey);
   if (cached && nowMs - cached.ts < 4 * 60 * 60 * 1000) {
     return cached.data;
@@ -1609,7 +1643,14 @@ async function computeCrmHealth(ids) {
     const dict = await loadDictionary();
     const pipeExcl = INACTIVE_PIPELINE_IDS.map(id => `PipelineId ne ${id}`).join(' and ');
     const pvExcl = EXCLUDED_FROM_ANALYSIS.map(id => `OwnerId ne ${id}`).join(' and ');
-    const baseExcl = `(${pipeExcl}) and (${pvExcl})`;
+    let baseExcl = `(${pipeExcl}) and (${pvExcl})`;
+
+    // Aplicar filtro de funil específico
+    const pipelineFilter = pipelineId ? ` and PipelineId eq ${pipelineId}` : '';
+    // Aplicar filtro de vendedor(es) específico(s)
+    const ownerFilter = ownerIds && ownerIds.length > 0
+      ? ` and (${ownerIds.map(id => `OwnerId eq ${id}`).join(' or ')})`
+      : '';
 
     const date90dAgo = new Date(nowMs - 90 * 24 * 60 * 60 * 1000).toISOString();
     const date180dAgo = new Date(nowMs - 180 * 24 * 60 * 60 * 1000).toISOString();
@@ -1617,11 +1658,11 @@ async function computeCrmHealth(ids) {
 
     // A. Deals abandonados (abertos sem atualização >90d)
     const openDeals = await ploomesGetAll(
-      `/Deals?$filter=StatusId eq 1 and ${baseExcl}&$select=Id,OwnerId,PipelineId,Amount,LastUpdateDate,StageId`, 10000);
+      `/Deals?$filter=StatusId eq 1 and ${baseExcl}${pipelineFilter}${ownerFilter}&$select=Id,OwnerId,PipelineId,Amount,LastUpdateDate,StageId`, 10000);
 
     // B. Deals perdidos últimos 180d
     const lostDeals180 = await ploomesGetAll(
-      `/Deals?$filter=StatusId eq 3 and FinishDate ge ${date180dAgo} and ${baseExcl}&$select=Id,OwnerId,PipelineId,LossReasonId,FinishDate`, 5000);
+      `/Deals?$filter=StatusId eq 3 and FinishDate ge ${date180dAgo} and ${baseExcl}${pipelineFilter}${ownerFilter}&$select=Id,OwnerId,PipelineId,LossReasonId,FinishDate`, 5000);
 
     // Aggregate by owner
     const ownerStats = {};
@@ -2217,6 +2258,7 @@ async function computeDashboard({ dict, allowedOwnerIds, allowedCreatorIds, targ
 
   return {
     dealsAbertos: dealsOpen.length,
+    receitaAberta: sumBy(dealsOpen, d => d.Amount || 0),
     ganhosMs: { count: dealsWon.length, valor: ganhosValor },
     perdidosMs: { count: dealsLost.length, valor: sumBy(dealsLost, d => d.Amount || 0) },
     interacoes30d: interByType,
@@ -2228,21 +2270,60 @@ async function computeDashboard({ dict, allowedOwnerIds, allowedCreatorIds, targ
   };
 }
 
-async function computeRanking({ dict, scopeOwnerIds, scopeCreatorIds, scopeAppUserIds, year, month, periodStart, pipelineId }) {
+async function computeRanking({ dict, scopeOwnerIds, scopeCreatorIds, scopeAppUserIds, ploomesUserMap, year, month, periodStart, pipelineId }) {
+  // ── Usa 100% warehouse.db — zero chamadas à Ploomes API ──
+  const wdb = getWarehouseDb();
+  if (!wdb) throw new Error('warehouse.db não disponível');
+
+  // Mapa de nomes: warehouse.ploomes_users → app_users (prioridade)
+  const nameMap = {};
+  try { wdb.prepare('SELECT id, name FROM ploomes_users').all().forEach(u => { nameMap[u.id] = u.name; }); } catch {}
+  if (ploomesUserMap) Object.assign(nameMap, ploomesUserMap);
+  const appUsers = db.prepare('SELECT id, ploomes_user_id, display_name, username, role, active FROM app_users WHERE active = 1').all();
+  appUsers.forEach(u => { if (u.ploomes_user_id) nameMap[u.ploomes_user_id] = u.display_name || u.username; });
+
   const now = new Date();
   const start = periodStart || new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
-  const startIso = isoNoZ(start);
-  const cutoff30 = new Date(Date.now() - 30*24*60*60*1000);
+  const startIso = start.toISOString().slice(0, 19);
+  const cutoff30Iso = new Date(Date.now() - 30*24*60*60*1000).toISOString().slice(0, 19);
+  const nowIso = now.toISOString().slice(0, 19);
 
-  const ownerFilter = ploomesOwnerFilter(scopeOwnerIds);
-  const creatorFilter = ploomesCreatorFilter(scopeCreatorIds);
-  const pipelineFilter = pipelineId ? `%20and%20PipelineId%20eq%20${pipelineId}` : '';
+  // Helpers para filtros SQL dinâmicos
+  function inList(ids) { return ids.length ? `(${ids.map(() => '?').join(',')})` : null; }
 
-  const dealsWon = await ploomesGetAll(`/Deals?$select=Id,OwnerId,Amount,FinishDate,StatusId&$filter=StatusId%20eq%202%20and%20FinishDate%20ge%20${encodeURIComponent(startIso)}${pipelineFilter}${ownerFilter ? `%20and%20(${ownerFilter})` : ''}`);
-  const interactions = await ploomesGetAll(`/InteractionRecords?$select=Id,CreatorId,Date,TypeId&$filter=Date%20ge%20${encodeURIComponent(startIso)}${creatorFilter ? `%20and%20(${creatorFilter})` : ''}`);
-  const tasksFinished = await ploomesGetAll(`/Tasks?$select=Id,OwnerId,DateTime,FinishDate,Finished&$filter=Finished%20eq%20true%20and%20FinishDate%20ge%20${encodeURIComponent(startIso)}${ownerFilter ? `%20and%20(${ownerFilter})` : ''}`);
-  const tasksOpen = await ploomesGetAll(`/Tasks?$select=Id,OwnerId,DateTime,Finished&$filter=Finished%20eq%20false${ownerFilter ? `%20and%20(${ownerFilter})` : ''}`);
-  const dealsOpen = await ploomesGetAll(`/Deals?$select=Id,OwnerId,StatusId,LastUpdateDate&$filter=StatusId%20eq%201${pipelineFilter}${ownerFilter ? `%20and%20(${ownerFilter})` : ''}`);
+  // 1. Deals ganhos no período
+  let dwQ = 'SELECT owner_id, amount FROM deals WHERE status_id = 2 AND finish_date >= ?';
+  const dwP = [startIso];
+  if (pipelineId) { dwQ += ' AND pipeline_id = ?'; dwP.push(pipelineId); }
+  const ownerList = inList(scopeOwnerIds);
+  if (ownerList) { dwQ += ` AND owner_id IN ${ownerList}`; dwP.push(...scopeOwnerIds); }
+  const dealsWon = wdb.prepare(dwQ).all(...dwP);
+
+  // 2. Interações no período
+  let intQ = 'SELECT creator_id, type_id FROM interactions WHERE date >= ?';
+  const intP = [startIso];
+  const creatorList = inList(scopeCreatorIds);
+  if (creatorList) { intQ += ` AND creator_id IN ${creatorList}`; intP.push(...scopeCreatorIds); }
+  const interactions = wdb.prepare(intQ).all(...intP);
+
+  // 3. Tasks finalizadas no período
+  let tfQ = 'SELECT owner_id, datetime, finish_date FROM tasks WHERE finished = 1 AND finish_date >= ?';
+  const tfP = [startIso];
+  if (ownerList) { tfQ += ` AND owner_id IN ${ownerList}`; tfP.push(...scopeOwnerIds); }
+  const tasksFinished = wdb.prepare(tfQ).all(...tfP);
+
+  // 4. Tasks em aberto com prazo vencido no período
+  let toQ = 'SELECT owner_id FROM tasks WHERE finished = 0 AND datetime <= ? AND datetime >= ?';
+  const toP = [nowIso, startIso];
+  if (ownerList) { toQ += ` AND owner_id IN ${ownerList}`; toP.push(...scopeOwnerIds); }
+  const tasksOpen = wdb.prepare(toQ).all(...toP);
+
+  // 5. Deals abertos sem atualização há 30 dias
+  let doQ = 'SELECT owner_id FROM deals WHERE status_id = 1 AND last_update_date <= ?';
+  const doP = [cutoff30Iso];
+  if (pipelineId) { doQ += ' AND pipeline_id = ?'; doP.push(pipelineId); }
+  if (ownerList) { doQ += ` AND owner_id IN ${ownerList}`; doP.push(...scopeOwnerIds); }
+  const dealsOpen = wdb.prepare(doQ).all(...doP);
 
   const byPloomesId = {};
   function ensure(pid) {
@@ -2254,53 +2335,47 @@ async function computeRanking({ dict, scopeOwnerIds, scopeCreatorIds, scopeAppUs
   }
 
   for (const d of dealsWon) {
-    const row = ensure(d.OwnerId);
-    row.pontuacao += 8;                                    // deal ganho (base)
-    row.pontuacao += Math.min(20, Math.round((d.Amount || 0) / 5000)); // até +20 pts por receita (R$5k = 1pt)
+    const row = ensure(d.owner_id);
+    row.pontuacao += 8;
+    row.pontuacao += Math.min(20, Math.round((d.amount || 0) / 5000));
     row.breakdown.dealsGanhos += 1;
-    row.breakdown.receitaGanha = (row.breakdown.receitaGanha || 0) + (d.Amount || 0);
+    row.breakdown.receitaGanha = (row.breakdown.receitaGanha || 0) + (d.amount || 0);
   }
 
   for (const i of interactions) {
-    const row = ensure(i.CreatorId);
+    const row = ensure(i.creator_id);
     row.pontuacao += 0.5;
     row.breakdown.interacoes += 1;
-    if (i.TypeId === 2 || i.TypeId === 5) {
-      row.pontuacao += 2;    // visitas/reuniões valem mais
+    if (i.type_id === 2 || i.type_id === 5) {
+      row.pontuacao += 2;
       row.breakdown.visitasReunioes += 1;
     }
   }
 
   for (const t of tasksFinished) {
-    const row = ensure(t.OwnerId);
-    if (t.DateTime && t.FinishDate && new Date(t.FinishDate) <= new Date(t.DateTime)) {
+    const row = ensure(t.owner_id);
+    if (t.datetime && t.finish_date && t.finish_date <= t.datetime) {
       row.pontuacao += 3;
       row.breakdown.tarefasNoPrazo += 1;
     }
   }
 
   for (const t of tasksOpen) {
-    if (t.DateTime && new Date(t.DateTime) <= now && new Date(t.DateTime) >= start) {
-      const row = ensure(t.OwnerId);
-      row.pontuacao -= 2;
-      row.breakdown.tarefasVencidas += 1;
-    }
+    const row = ensure(t.owner_id);
+    row.pontuacao -= 2;
+    row.breakdown.tarefasVencidas += 1;
   }
 
   for (const d of dealsOpen) {
-    if (d.LastUpdateDate && new Date(d.LastUpdateDate) <= cutoff30) {
-      const row = ensure(d.OwnerId);
-      // cap at -20 total per user
-      if (row.breakdown.dealsSemAtualizacao30d < 20) {
-        row.pontuacao -= 1;
-        row.breakdown.dealsSemAtualizacao30d += 1;
-      }
+    const row = ensure(d.owner_id);
+    if (row.breakdown.dealsSemAtualizacao30d < 20) {
+      row.pontuacao -= 1;
+      row.breakdown.dealsSemAtualizacao30d += 1;
     }
   }
 
-  // coach weekly bonus from DB (map app_user -> ploomes_user_id)
-  const users = db.prepare('SELECT id, ploomes_user_id, display_name, username, role, active FROM app_users WHERE active = 1').all();
-  const pidByAppId = Object.fromEntries(users.filter(u => u.ploomes_user_id).map(u => [u.id, u.ploomes_user_id]));
+  // coach weekly bonus from DB (map app_user -> ploomes_user_id) — usa appUsers já carregado
+  const pidByAppId = Object.fromEntries(appUsers.filter(u => u.ploomes_user_id).map(u => [u.id, u.ploomes_user_id]));
   for (const appId of scopeAppUserIds) {
     const pid = pidByAppId[appId];
     if (!pid) continue;
@@ -2314,20 +2389,22 @@ async function computeRanking({ dict, scopeOwnerIds, scopeCreatorIds, scopeAppUs
     row.breakdown.semanasCoach = w;
   }
 
-  // Build leaderboard list from scopeAppUserIds, but score by their Ploomes id
+  // Build leaderboard: usa todos os scopeOwnerIds (Ploomes IDs ativos, não só app_users)
+  const appUserByPloomesId = Object.fromEntries(appUsers.filter(u => u.ploomes_user_id).map(u => [u.ploomes_user_id, u]));
+  const seen = new Set();
   const leaderboard = [];
-  for (const u of users) {
-    if (!scopeAppUserIds.includes(u.id)) continue;
-    const pid = u.ploomes_user_id;
-    if (!pid) continue;
-    // Excluir usuários que não são vendedores ativos (ex: dono da empresa)
+
+  for (const pid of (scopeOwnerIds || [])) {
+    if (seen.has(pid)) continue;
+    seen.add(pid);
     if (EXCLUDED_FROM_ANALYSIS.includes(pid)) continue;
     const row = byPloomesId[pid] || { pontuacao: 0, breakdown: { dealsGanhos:0, interacoes:0, visitasReunioes:0, tarefasNoPrazo:0, tarefasVencidas:0, dealsSemAtualizacao30d:0, semanasCoach:0 } };
+    const appUser = appUserByPloomesId[pid];
     leaderboard.push({
-      userId: u.id,
+      userId: appUser?.id || null,
       ploomesUserId: pid,
-      nome: u.display_name || u.username,
-      pontuacao: row.pontuacao,
+      nome: appUser ? (appUser.display_name || appUser.username) : (nameMap[pid] || `Vend. ${pid}`),
+      pontuacao: Math.round(row.pontuacao),
       breakdown: row.breakdown,
     });
   }
@@ -2376,20 +2453,22 @@ app.post('/login', async (req, res) => {
 app.get('/logout', (req, res) => { req.session.destroy(() => res.redirect('/login')); });
 
 // ─── Main app ──────────────────────────────────────────────────
-app.get('/', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-app.get('/coach', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'coach.html')));
-app.get('/dashboard', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'dashboard.html')));
-app.get('/ranking', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'ranking.html')));
-app.get('/gestor', requireAuth, requireAdminOrGestor, (req, res) =>
-  res.sendFile(path.join(__dirname, 'gestor.html')));
-app.get('/app', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, 'app.html'));
-});
-app.get('/admin', requireAuth, requireAdmin, (req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
+// ─── SPA única entrada ─────────────────────────────────────────────────────
+// TODOS os acessos diretos redirecionam para o SPA (/app)
+// Os HTMLs separados existem no disco mas não são mais acessíveis diretamente.
+app.get('/', requireAuth, (req, res) => res.redirect('/app'));
+app.get('/coach', requireAuth, (req, res) => res.redirect('/app#coach'));
+app.get('/dashboard', requireAuth, (req, res) => res.redirect('/app#dashboard'));
+app.get('/ranking', requireAuth, (req, res) => res.redirect('/app#ranking'));
+app.get('/gestor', requireAuth, requireAdminOrGestor, (req, res) => res.redirect('/app#gestor'));
+app.get('/admin', requireAuth, requireAdmin, (req, res) => res.redirect('/app#admin'));
 app.get('/reports', requireAuth, (req, res) => {
   const role = req.session.role || 'vendedor';
-  if (role === 'vendedor') return res.redirect('/');
-  res.sendFile(path.join(__dirname, 'reports.html'));
+  if (role === 'vendedor') return res.redirect('/app');
+  res.redirect('/app#reports');
+});
+app.get('/app', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'app.html'));
 });
 
 // ─── Self info ─────────────────────────────────────────────────
@@ -2409,6 +2488,7 @@ app.get('/api/me', requireAuth, (req, res) => {
 app.get('/api/warehouse/status', requireAuth, requireAdmin, (req, res) => {
   try {
     const last = getWarehouseLastRun();
+    const lastOk = getWarehouseLastOkRun();
     const wdb = getWarehouseDb();
     if (!wdb) return res.json({ ok: false, error: 'warehouse.db não disponível', path: WAREHOUSE_DB_PATH });
     if (!last) return res.json({ ok: false, error: 'Sem runs no warehouse', path: WAREHOUSE_DB_PATH });
@@ -2423,6 +2503,7 @@ app.get('/api/warehouse/status', requireAuth, requireAdmin, (req, res) => {
       path: WAREHOUSE_DB_PATH,
       fresh: isWarehouseFresh(),
       lastRun: last,
+      lastOkRun: lastOk,
       counts,
     });
   } catch (e) {
@@ -2456,9 +2537,9 @@ function buildExecReportHtml(wdb, last, dict) {
 app.post('/api/admin/generate-report', requireAuth, requireAdminOrGestor, async (req, res) => {
   try {
     const wdb = getWarehouseDb();
-    const last = getWarehouseLastRun();
+    const last = getWarehouseLastOkRun(); // sempre o último run com sucesso
     const dict = getWarehouseDictionary();
-    if (!wdb || !last || !last.ok || !dict) {
+    if (!wdb || !last || !dict) {
       return res.status(400).json({ error: 'Warehouse não disponível/atualizado. Rode o sync antes.' });
     }
     const html = buildExecReportHtml(wdb, last, dict);
@@ -2514,11 +2595,17 @@ app.get('/api/ploomes-users', requireAuth, async (req, res) => {
   const role = req.session.role || 'vendedor';
   if (!['admin','gestor','supervisor'].includes(role)) return res.status(403).json({ error: 'Acesso negado' });
   try {
+    // IDs de usuários desativados localmente (app_users.active = 0)
+    const inactiveLocalIds = db.prepare(
+      'SELECT ploomes_user_id FROM app_users WHERE active = 0 AND ploomes_user_id IS NOT NULL'
+    ).all().map(r => r.ploomes_user_id);
+
     const dict = await loadDictionary();
     const users = (dict.users || []).filter(u =>
       !u.Suspended &&
       !u.Integration &&
-      !EXCLUDED_FROM_ANALYSIS.includes(u.Id)
+      !EXCLUDED_FROM_ANALYSIS.includes(u.Id) &&
+      !inactiveLocalIds.includes(u.Id)
     ).map(u => ({ id: u.Id, name: u.Name, email: u.Email }));
     res.json(users);
   } catch (e) {
@@ -2526,12 +2613,20 @@ app.get('/api/ploomes-users', requireAuth, async (req, res) => {
   }
 });
 
-// ─── Active Pipelines ───────────────────────────────────────
+// ─── Active Pipelines (todos os usuários autenticados) ───────
 app.get('/api/pipelines-active', requireAuth, async (req, res) => {
-  const role = req.session.role || 'vendedor';
-  if (!['admin','gestor','supervisor'].includes(role)) return res.status(403).json({ error: 'Acesso negado' });
   try {
-    // Fetch pipelines from Ploomes API with Archived field
+    // Usar warehouse.db como fonte primária (já sincronizado com campo archived)
+    const _wdb = getWarehouseDb();
+    const warehousePipelines = _wdb ? _wdb.prepare(
+      'SELECT id, name FROM pipelines WHERE archived = 0 ORDER BY name'
+    ).all() : [];
+
+    if (warehousePipelines.length > 0) {
+      return res.json(warehousePipelines);
+    }
+
+    // Fallback: buscar da API Ploomes se warehouse estiver vazio
     const raw = await ploomesGetOnce('/Deals@Pipelines?$select=Id,Name,Archived');
     const all = raw.value || [];
     const pipelines = all
@@ -2540,6 +2635,7 @@ app.get('/api/pipelines-active', requireAuth, async (req, res) => {
       .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
     res.json(pipelines);
   } catch (e) {
+    console.error('[pipelines-active] Erro:', e.message);
     res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
@@ -2736,6 +2832,9 @@ app.get('/api/gestor-dashboard', requireAuth, requireAdminOrGestor, async (req, 
     const pipelineId = req.query.pipelineId ? Number(req.query.pipelineId) : null;
     const pipelineFilter = pipelineId ? `%20and%20PipelineId%20eq%20${pipelineId}` : '';
     const dict = await loadDictionary();
+    // Complementar userById com warehouse.db para capturar IDs de alta numeração (ex: 60xxxxxx)
+    const warehouseDict = getWarehouseDictionary();
+    const fullUserById = { ...(warehouseDict?.userById || {}), ...(dict.userById || {}) };
     const now = new Date();
     const startMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const startMonthIso = isoNoZ(startMonth);
@@ -2744,7 +2843,7 @@ app.get('/api/gestor-dashboard', requireAuth, requireAdminOrGestor, async (req, 
 
     const EXCL = EXCLUDED_FROM_ANALYSIS || [];
     const ARCHIVED = INACTIVE_PIPELINE_IDS || [];
-    const ownerIds = Object.keys(dict.userById || {}).map(Number).filter(id => !EXCL.includes(id));
+    const ownerIds = Object.keys(fullUserById).map(Number).filter(id => !EXCL.includes(id));
     const ownerFilter = ownerIds.map(id => `OwnerId eq ${id}`).join(' or ');
     const creatorFilter = ownerIds.map(id => `CreatorId eq ${id}`).join(' or ');
 
@@ -2761,7 +2860,7 @@ app.get('/api/gestor-dashboard', requireAuth, requireAdminOrGestor, async (req, 
     const byOwner = {};
     function ensureOwner(pid) {
       if (!byOwner[pid]) byOwner[pid] = {
-        name: dict.userById?.[pid]?.Name || `ID ${pid}`,
+        name: fullUserById[pid] || dict.userById?.[pid] || `ID ${pid}`,
         ploomesId: pid, dealsAbertos: 0, receitaAberta: 0,
         dealsGanhosMes: 0, receitaGanhaMes: 0, dealsPerdidosMes: 0, receitaPerdidaMes: 0,
         interacoes7d: 0, visitasReunioes7d: 0, tarefasVencidas: 0, dealsPardos30d: 0,
@@ -2862,12 +2961,33 @@ app.get('/api/ranking', requireAuth, async (req, res) => {
     const periodMonth = periodStart.getUTCMonth() + 1;
     const periodYear = periodStart.getUTCFullYear();
 
-    const dict = await loadDictionary();
+    // Usa warehouse.db como fonte de usuários (evita chamada à API Ploomes e rate-limit)
+    const wdbRank = getWarehouseDb();
+    if (!wdbRank) return res.status(503).json({ error: 'warehouse.db indisponível' });
 
-    // Define scope app users for ranking view
+    // Para admin/gestor: ranking usa TODOS os vendedores ativos do warehouse
+    // Para supervisor/vendedor: usa escopo restrito via app_users
+    let scopePloomesIds = [];
     let scopeAppUserIds = [];
+    const ploomesUserMap = {}; // ploomesId -> displayName
+
+    const filterUserId = req.query.userId ? Number(req.query.userId) : null;
+
     if (isAdminOrGestor(req)) {
-      scopeAppUserIds = db.prepare('SELECT id FROM app_users WHERE active = 1').all().map(r => r.id);
+      if (filterUserId) {
+        const target = db.prepare('SELECT ploomes_user_id FROM app_users WHERE id = ? AND active = 1').get(filterUserId);
+        if (target?.ploomes_user_id) scopePloomesIds = [target.ploomes_user_id];
+        scopeAppUserIds = [filterUserId];
+      } else {
+        // Usa warehouse.ploomes_users como fonte de todos os vendedores
+        const warehouseUsers = wdbRank.prepare('SELECT id, name FROM ploomes_users').all();
+        const excludedSet = new Set(EXCLUDED_FROM_ANALYSIS);
+        warehouseUsers.filter(u => !excludedSet.has(u.id)).forEach(u => {
+          scopePloomesIds.push(u.id);
+          ploomesUserMap[u.id] = u.name;
+        });
+        scopeAppUserIds = db.prepare('SELECT id FROM app_users WHERE active = 1').all().map(r => r.id);
+      }
     } else if ((req.session.role || 'vendedor') === 'supervisor') {
       const rows = db.prepare(`
         SELECT tm.user_id
@@ -2876,20 +2996,21 @@ app.get('/api/ranking', requireAuth, async (req, res) => {
         WHERE t.supervisor_user_id = ?
       `).all(req.session.userId);
       scopeAppUserIds = [...new Set([req.session.userId, ...rows.map(r => r.user_id)])];
+      const scopeUsers = db.prepare(`SELECT id, ploomes_user_id FROM app_users WHERE id IN (${scopeAppUserIds.map(()=>'?').join(',')})`).all(...scopeAppUserIds);
+      scopePloomesIds = scopeUsers.map(u => u.ploomes_user_id).filter(Boolean);
     } else {
       scopeAppUserIds = [req.session.userId];
+      const me2 = db.prepare('SELECT ploomes_user_id FROM app_users WHERE id = ?').get(req.session.userId);
+      if (me2?.ploomes_user_id) scopePloomesIds = [me2.ploomes_user_id];
     }
-
-    // Map to Ploomes ids for filters
-    const scopeUsers = db.prepare(`SELECT id, ploomes_user_id FROM app_users WHERE id IN (${scopeAppUserIds.map(()=>'?').join(',')})`).all(...scopeAppUserIds);
-    const scopePloomesIds = scopeUsers.map(u => u.ploomes_user_id).filter(Boolean);
 
     const pipelineId = req.query.pipelineId ? Number(req.query.pipelineId) : null;
     const data = await computeRanking({
-      dict,
+      dict: {},
       scopeOwnerIds: scopePloomesIds,
       scopeCreatorIds: scopePloomesIds,
       scopeAppUserIds,
+      ploomesUserMap,
       year: periodYear,
       month: periodMonth,
       periodStart,
@@ -2952,6 +3073,12 @@ app.put('/api/goals/:id', requireAuth, requireAdmin, (req, res) => {
 });
 
 // ─── Coaching summaries ───────────────────────────────────────
+// Endpoint sem userId: admin vê todos os summaries
+app.get('/api/coaching-summaries', requireAuth, requireAdminOrGestor, (req, res) => {
+  const rows = db.prepare('SELECT id, user_id, summary, score_delta, created_at FROM coaching_summaries ORDER BY id DESC LIMIT 200').all();
+  res.json(rows);
+});
+
 app.get('/api/coaching-summaries/:userId', requireAuth, (req, res) => {
   const userId = Number(req.params.userId);
   if (!canAccessUserId(req, userId)) return res.status(403).json({ error: 'Sem permissão' });
@@ -2974,7 +3101,17 @@ app.get('/api/crm-health', requireAuth, async (req, res) => {
   const role = req.session.role || 'vendedor';
   if (!['admin','gestor','supervisor'].includes(role)) return res.status(403).json({ error: 'Acesso negado' });
   try {
-    const result = await computeCrmHealth();
+    // Filtros de funil e vendedor
+    const pipelineId = req.query.pipelineId ? Number(req.query.pipelineId) : null;
+    let ownerIds = null;
+    if (req.query.ploomesId) {
+      const pid = Number(req.query.ploomesId);
+      if (!EXCLUDED_FROM_ANALYSIS.includes(pid)) ownerIds = [pid];
+    } else if (req.query.userId) {
+      const appUser = db.prepare('SELECT ploomes_user_id FROM app_users WHERE id = ? AND active = 1').get(Number(req.query.userId));
+      if (appUser?.ploomes_user_id) ownerIds = [appUser.ploomes_user_id];
+    }
+    const result = await computeCrmHealth(null, { pipelineId, ownerIds });
     res.json(result);
   } catch (e) {
     res.status(500).json({ error: 'Erro interno. Tente novamente.' });
@@ -3242,7 +3379,9 @@ app.get('/api/funnel-health', requireAuth, async (req, res) => {
   const role = req.session.role || 'vendedor';
   if (!['admin','gestor','supervisor'].includes(role)) return res.status(403).json({ error: 'Acesso negado' });
   try {
-    const fhKey = `fh_${req.session.userId}_${req.query.pipelineId||''}`;
+    const filterPipelineId = req.query.pipelineId ? Number(req.query.pipelineId) : null;
+    const filterPloomesId = req.query.ploomesId ? Number(req.query.ploomesId) : null;
+    const fhKey = `fh_${req.session.userId}_${filterPipelineId||''}_${filterPloomesId||''}`;
     const fhCached = funnelHealthCache.get(fhKey);
     if (fhCached && Date.now() - fhCached.ts < FUNNEL_HEALTH_CACHE_TTL) return res.json(fhCached.data);
 
@@ -3261,12 +3400,12 @@ app.get('/api/funnel-health', requireAuth, async (req, res) => {
     const activeUserIds = new Set(activeUsers.map(u => u.Id));
     const userNameById = Object.fromEntries(allUsers.map(u => [u.Id, u.Name]));
 
-    // Buscar todos os deals abertos (sem filtro de owner — front filtra para supervisor)
-    // Excluir funis inativos/de teste
+    // Filtros: pipeline + vendedor específico
     const inactivePipelineFilter = INACTIVE_PIPELINE_IDS.map(id => `PipelineId%20ne%20${id}`).join('%20and%20');
-    const pipelineIdFilter = req.query.pipelineId ? `%20and%20PipelineId%20eq%20${Number(req.query.pipelineId)}` : '';
+    const pipelineIdFilter = filterPipelineId ? `%20and%20PipelineId%20eq%20${filterPipelineId}` : '';
+    const ownerIdFilter = filterPloomesId ? `%20and%20OwnerId%20eq%20${filterPloomesId}` : '';
     const deals = await ploomesGetAll(
-      `/Deals?$select=Id,OwnerId,Amount,LastUpdateDate,PipelineId,StageId&$filter=StatusId%20eq%201${inactivePipelineFilter ? '%20and%20' + inactivePipelineFilter : ''}${pipelineIdFilter}`
+      `/Deals?$select=Id,OwnerId,Amount,LastUpdateDate,PipelineId,StageId&$filter=StatusId%20eq%201${inactivePipelineFilter ? '%20and%20' + inactivePipelineFilter : ''}${pipelineIdFilter}${ownerIdFilter}`
     );
 
     const today = new Date();
